@@ -831,11 +831,18 @@ const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
         try {
           if (!window.ethereum) throw new Error('No Web3 Provider found');
           
+          // Check if contract address is defined
+          const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
+          if (!contractAddress) {
+            console.error('Contract address is not defined in environment variables');
+            throw new Error('Contract configuration missing');
+          }
+          
           // Updated for ethers v6
           const provider = new ethers.BrowserProvider(window.ethereum);
           const signer = await provider.getSigner();
           const contract = new ethers.Contract(
-            process.env.NEXT_PUBLIC_CONTRACT_ADDRESS,
+            contractAddress,
             contractABI,
             signer
           );
