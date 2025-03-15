@@ -1,12 +1,22 @@
-import { getAccount } from '@wagmi/core';
+import { 
+  getAccount, 
+  simulateContract, 
+  writeContract, 
+  readContract,
+  getWalletClient,
+  getPublicClient
+} from '@wagmi/core';
+import { 
+  useAccount, 
+  useChainId, 
+  useWriteContract, 
+  useSimulateContract 
+} from 'wagmi';
 import { createPublicClient, http, parseAbi } from 'viem';
-import { simulateContract, writeContract, readContract } from '@wagmi/core';
 import { parseEther, encodeFunctionData } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import { CONTRACT_ADDRESSES, SUPPORTED_CHAINS, isChainSupported } from './constants';
 import axios from 'axios';
-import { getWalletClient, getPublicClient } from '@wagmi/core';
-import { useAccount, useChainId, useWriteContract } from 'wagmi';
 import { prepareWriteContract } from '@wagmi/core';
 import { ethers } from 'ethers';
 import { BrowserProvider, Contract } from "ethers";
@@ -81,30 +91,21 @@ export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
   
   const resolver_hash = "";
   
-  // Use prepareWriteContract instead of usePrepareContractWrite
-  const prepared = async () => {
-    try {
-      return await prepareWriteContract({
-        address: contractAddress,
-        abi: PUZZLE_NFT_ABI,
-        functionName: 'mintPuzzle',
-        args: [metadataUrl, gridSize, resolver_hash],
-        value: parseEther(MINT_PRICE.toString()),
-      });
-    } catch (error) {
-      console.error('Error preparing contract write:', error);
-      return null;
-    }
-  };
+  const { data: simulateData } = useSimulateContract({
+    address: contractAddress,
+    abi: PUZZLE_NFT_ABI,
+    functionName: 'mintPuzzle',
+    args: [metadataUrl, gridSize, "", "", parseEther(MINT_PRICE.toString())],
+    value: parseEther(MINT_PRICE.toString()),
+  });
   
   const { writeContract, isLoading, isSuccess, isError, error } = useWriteContract();
   
   const mint = async () => {
     if (!contractAddress || !address || !metadataUrl || !gridSize) return;
     
-    const config = await prepared();
-    if (config) {
-      writeContract(config);
+    if (simulateData?.request) {
+      writeContract(simulateData.request);
     }
   };
 
