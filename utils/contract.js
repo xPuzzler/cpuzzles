@@ -1,5 +1,5 @@
 // utils/contract.js
-import { base, baseSepolia } from 'wagmi/chains';
+import { base, baseSepolia } from 'viem/chains';
 import { CONTRACT_ADDRESSES } from './constants';
 
 export const getContractAddress = (chainId) => {

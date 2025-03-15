@@ -3,11 +3,11 @@ import { createPublicClient, http, parseAbi } from 'viem';
 import { simulateContract, writeContract, readContract } from '@wagmi/core';
 import { parseEther, encodeFunctionData } from 'viem';
 import { useChainId } from 'wagmi';
-import { base, baseSepolia } from 'wagmi/chains';
+import { base, baseSepolia } from 'viem/chains';
 import { CONTRACT_ADDRESSES, SUPPORTED_CHAINS, isChainSupported } from './constants';
 import axios from 'axios';
 import { getWalletClient, getPublicClient } from '@wagmi/core';
-import { useAccount, useNetwork, useContractWrite, usePrepareContractWrite } from 'wagmi';
+import { useAccount, useChainId, useWriteContract, usePrepareContractWrite } from 'wagmi';
 import { ethers } from 'ethers';
 import { BrowserProvider, Contract } from "ethers";
 import { getContractAddress } from './contract';
@@ -76,7 +76,7 @@ const storeHashMapping = async (resolverHash, tokenId) => {
  */
 export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
   const { address } = useAccount();
-  const { chain } = useNetwork();
+  const chainId = useChainId();
   
   const chainId = chain?.id;
   const contractAddress = chainId ? CONTRACT_ADDRESSES[chainId] : undefined;
@@ -92,7 +92,7 @@ export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
     enabled: !!contractAddress && !!address && !!metadataUrl && !!gridSize
   });
   
-  const { write, data, isLoading, isSuccess, isError, error } = useContractWrite(config);
+  const { write, data, isLoading, isSuccess, isError, error } = useWriteContract(config);
   
   // Return everything needed for the minting operation
   return {
