@@ -15,6 +15,7 @@ import { mintPuzzleNFT, getRemainingMints, getMintPrice, MAX_PER_WALLET } from '
 import { ethers } from 'ethers';
 import contractABI from '../utils/contractABI.json';
 import { fetchOpenSeaCollectionData, parseOpenSeaLink } from '../utils/opensea';
+import dynamic from 'next/dynamic'
 
 const PuzzleGenerator = () => {
 
@@ -95,6 +96,10 @@ const [isValidatingLink, setIsValidatingLink] = useState(false);
     { name: 'Ultraviolet', filter: 'brightness(100%) contrast(140%) saturate(200%) hue-rotate(270deg)' },
     { name: 'Nebula', filter: 'hue-rotate(230deg) saturate(250%) brightness(90%) contrast(130%) blur(0.2px)' }
     ];
+
+    const MintComponent = dynamic(() => import('../components/MintComponent'), {
+      ssr: false
+    })
 
   useEffect(() => {
     const fetchMints = async () => {

@@ -2,7 +2,6 @@ import { getAccount } from '@wagmi/core';
 import { createPublicClient, http, parseAbi } from 'viem';
 import { simulateContract, writeContract, readContract } from '@wagmi/core';
 import { parseEther, encodeFunctionData } from 'viem';
-import { useChainId } from 'wagmi';
 import { base, baseSepolia } from 'viem/chains';
 import { CONTRACT_ADDRESSES, SUPPORTED_CHAINS, isChainSupported } from './constants';
 import axios from 'axios';
@@ -15,7 +14,7 @@ import { getContractAddress } from './contract';
 const MINT_PRICE = 0.001; // in ETH
 export const MAX_PER_WALLET = 25;
 const CONTRACT_ADDRESS = '0x448CE2682db71C9192970B9b22357fa4c70e444f';
-
+const isBrowser = typeof window !== 'undefined';
 // Check if we're in development mode
 const isDev = false;
 
@@ -76,9 +75,7 @@ const storeHashMapping = async (resolverHash, tokenId) => {
  */
 export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
   const { address } = useAccount();
-  const chainId = useChainId();
-  
-  const chainId = chain?.id;
+  const chainId = useChainId();  // First declaration
   const contractAddress = chainId ? CONTRACT_ADDRESSES[chainId] : undefined;
   
   const resolver_hash = "";
@@ -110,6 +107,10 @@ export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
 
 // And if you need a standalone function that doesn't use hooks:
 export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress) => {
+  if (!isBrowser) {
+    return { success: false, error: "This function must be run in browser" };
+  }
+  
   try {
     if (!window.ethereum) {
       throw new Error("Ethereum provider not found");
@@ -243,31 +244,30 @@ export const getMintPrice = () => MINT_PRICE;
  */
 export const getRemainingMints = async (address, chainId) => {
   try {
+    if (!isBrowser) {
+      return MAX_PER_WALLET;
+    }
+
     // Validate parameters
     if (!address || !chainId) {
       console.log("Missing address or chainId:", { address, chainId });
       return 0;
     }
-    
-    // Log what we're trying to do for debugging
-    console.log("Attempting to get mint count for:", { 
-      address, 
-      chainId, 
-      contractAddress: CONTRACT_ADDRESSES[chainId] 
-    });
 
-    // Try to get mint count from local storage
-    const storageKey = `${address.toLowerCase()}_${chainId}_mintCount`;
-    const storedMintCount = localStorage.getItem(storageKey);
-    const mintCount = storedMintCount ? parseInt(storedMintCount) : 0;
-    
-    console.log(`User has minted ${mintCount} puzzles so far`);
+    // Safely access localStorage
+    let mintCount = 0;
+    try {
+      const storageKey = `${address.toLowerCase()}_${chainId}_mintCount`;
+      const storedMintCount = localStorage.getItem(storageKey);
+      mintCount = storedMintCount ? parseInt(storedMintCount) : 0;
+    } catch (e) {
+      console.error("localStorage error:", e);
+    }
+
     return MAX_PER_WALLET - mintCount;
-    
-    /* Commented out problematic contract call for now */
   } catch (error) {
     console.error("Remaining mints error:", error);
-    return MAX_PER_WALLET; // Default to max mints on error
+    return MAX_PER_WALLET;
   }
 };
 
