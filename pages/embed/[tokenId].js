@@ -1,10 +1,13 @@
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
-import Confetti from '../../components/Confetti';
 
-// Import PuzzleCanvas with SSR disabled
+// Import components with SSR disabled
 const PuzzleCanvas = dynamic(() => import('../../components/PuzzleCanvas'), {
-  ssr: false // Disable server-side rendering for this component
+  ssr: false
+});
+
+const Confetti = dynamic(() => import('../../components/Confetti'), {
+  ssr: false
 });
 
 export default function EmbedPuzzle() {
@@ -18,13 +21,17 @@ export default function EmbedPuzzle() {
 
   return (
     <div className="embed-container">
-      <PuzzleCanvas 
-        tokenId={tokenId}
-        showControls={true}
-        disableHeader={true}
-        embeddedMode={true}
-      />
-      <Confetti active={false} /> {/* Needed for dependency */}
+      {tokenId && (
+        <>
+          <PuzzleCanvas 
+            tokenId={tokenId}
+            showControls={true}
+            disableHeader={true}
+            embeddedMode={true}
+          />
+          <Confetti active={false} />
+        </>
+      )}
       
       <style jsx global>{`
         body {
