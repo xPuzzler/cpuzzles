@@ -97,10 +97,6 @@ const [isValidatingLink, setIsValidatingLink] = useState(false);
     { name: 'Nebula', filter: 'hue-rotate(230deg) saturate(250%) brightness(90%) contrast(130%) blur(0.2px)' }
     ];
 
-    const MintComponent = dynamic(() => import('../components/MintComponent'), {
-      ssr: false
-    })
-
   useEffect(() => {
     const fetchMints = async () => {
       try {
