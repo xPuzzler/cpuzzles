@@ -6,7 +6,8 @@ import { base, baseSepolia } from 'viem/chains';
 import { CONTRACT_ADDRESSES, SUPPORTED_CHAINS, isChainSupported } from './constants';
 import axios from 'axios';
 import { getWalletClient, getPublicClient } from '@wagmi/core';
-import { useAccount, useChainId, useWriteContract, usePrepareContractWrite } from 'wagmi';
+import { useAccount, useChainId, useWriteContract } from 'wagmi';
+import { prepareWriteContract } from '@wagmi/core';
 import { ethers } from 'ethers';
 import { BrowserProvider, Contract } from "ethers";
 import { getContractAddress } from './contract';
@@ -75,26 +76,40 @@ const storeHashMapping = async (resolverHash, tokenId) => {
  */
 export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
   const { address } = useAccount();
-  const chainId = useChainId();  // First declaration
+  const chainId = useChainId();
   const contractAddress = chainId ? CONTRACT_ADDRESSES[chainId] : undefined;
   
   const resolver_hash = "";
   
-  const { config } = usePrepareContractWrite({
-    address: contractAddress,
-    abi: PUZZLE_NFT_ABI,
-    functionName: 'mintPuzzle',
-    args: [metadataUrl, gridSize, resolver_hash],
-    value: parseEther(MINT_PRICE.toString()),
-    enabled: !!contractAddress && !!address && !!metadataUrl && !!gridSize
-  });
+  // Use prepareWriteContract instead of usePrepareContractWrite
+  const prepared = async () => {
+    try {
+      return await prepareWriteContract({
+        address: contractAddress,
+        abi: PUZZLE_NFT_ABI,
+        functionName: 'mintPuzzle',
+        args: [metadataUrl, gridSize, resolver_hash],
+        value: parseEther(MINT_PRICE.toString()),
+      });
+    } catch (error) {
+      console.error('Error preparing contract write:', error);
+      return null;
+    }
+  };
   
-  const { write, data, isLoading, isSuccess, isError, error } = useWriteContract(config);
+  const { writeContract, isLoading, isSuccess, isError, error } = useWriteContract();
   
-  // Return everything needed for the minting operation
+  const mint = async () => {
+    if (!contractAddress || !address || !metadataUrl || !gridSize) return;
+    
+    const config = await prepared();
+    if (config) {
+      writeContract(config);
+    }
+  };
+
   return {
-    mint: write,
-    transaction: data,
+    mint,
     isLoading,
     isSuccess,
     isError,
