@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Puzzle NFT</title>
+    <style>
+        :root {
+            --purple-500: #6366f1;
+            --gray-800: #1f2937;
+        }
+
+        body {
+            margin: 0;
+            background: #0f172a;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            touch-action: manipulation;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .puzzle-container {
+            position: relative;
+            width: 90vw;
+            height: 90vh;
+            max-width: 800px;
+            max-height: 800px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 1rem;
+            overflow: hidden;
+        }
+
+        #puzzle-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: var(--purple-500);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="puzzle-container">
+        <canvas id="puzzle-canvas"></canvas>
+        <div class="controls">
+            <button id="shuffle">Shuffle</button>
+            <button id="reset">Reset</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.x/dist/pixi.min.js"></script>
+    <script>
+        // Configuration from URL parameters
+        const params = new URLSearchParams(window.location.search);
+        const imageUrl = params.get('image');
+        const gridSize = parseInt(params.get('gridSize')) || 3;
+
+        // Initialize PIXI Application
+        const app = new PIXI.Application({
+            resizeTo: window,
+            backgroundColor: 0x1a1a1a,
+            antialias: true
+        });
+
+        document.getElementById('puzzle-canvas').appendChild(app.view);
+
+        // Load image and create puzzle
+        async function initPuzzle() {
+            const texture = await PIXI.Assets.load(imageUrl);
+            const { width, height } = texture;
+            
+            const pieceWidth = width / gridSize;
+            const pieceHeight = height / gridSize;
+
+            // Create puzzle pieces
+            for(let row = 0; row < gridSize; row++) {
+                for(let col = 0; col < gridSize; col++) {
+                    const piece = new PIXI.Sprite(new PIXI.Texture(
+                        texture.baseTexture,
+                        new PIXI.Rectangle(col * pieceWidth, row * pieceHeight, pieceWidth, pieceHeight)
+                    );
+                    
+                    piece.originalPosition = { x: col * pieceWidth, y: row * pieceHeight };
+                    piece.position.set(col * pieceWidth, row * pieceHeight);
+                    piece.interactive = true;
+                    piece.cursor = 'grab';
+                    
+                    // Drag and drop handlers
+                    piece.on('pointerdown', onDragStart)
+                         .on('pointerup', onDragEnd)
+                         .on('pointermove', onDragMove);
+                    
+                    app.stage.addChild(piece);
+                }
+            }
+        }
+
+        // Drag and drop logic
+        let dragTarget = null;
+        let dragStart = null;
+
+        function onDragStart(event) {
+            dragTarget = this;
+            dragStart = this.position.clone();
+            this.alpha = 0.7;
+            this.zIndex = 1000;
+        }
+
+        function onDragMove(event) {
+            if(!dragTarget) return;
+            const pos = event.global;
+            dragTarget.position.set(pos.x - dragTarget.width/2, pos.y - dragTarget.height/2);
+        }
+
+        function onDragEnd() {
+            if(!dragTarget) return;
+            dragTarget.alpha = 1;
+            dragTarget.zIndex = 1;
+            dragTarget = null;
+            checkSolved();
+        }
+
+        // Shuffle button handler
+        document.getElementById('shuffle').addEventListener('click', shufflePieces);
+        
+        // Reset button handler
+        document.getElementById('reset').addEventListener('click', resetPuzzle);
+
+        // Initialize the puzzle
+        initPuzzle();
+
+        // Add window resize handler
+        window.addEventListener('resize', () => app.renderer.resize(window.innerWidth, window.innerHeight));
+    </script>
+</body>
+</html>
