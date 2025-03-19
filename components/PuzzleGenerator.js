@@ -146,24 +146,18 @@ const contractABI = [
   }, []);
 
   useEffect(() => {
-    if (containerRef.current) {
-      const updateDimensions = () => {
-        const container = containerRef.current;
-        if (container) {
-          const width = container.clientWidth;
-          const height = container.clientHeight;
-          setContainerDimensions({ width, height });
-        }
-      };
+    if (image && containerRef.current) {
+      const containerWidth = containerRef.current.offsetWidth;
+      const maxWidth = Math.min(containerWidth, image.width);
+      const scaleFactor = maxWidth / image.width;
+      const height = image.height * scaleFactor;
       
-      updateDimensions();
-      window.addEventListener('resize', updateDimensions);
-      
-      return () => {
-        window.removeEventListener('resize', updateDimensions);
-      };
+      setContainerDimensions({
+        width: maxWidth,
+        height: height
+      });
     }
-  }, [containerRef, image]);
+  }, [image, containerRef, window.innerWidth]);
 
   const handleSelectNFT = (nft) => {
     console.log("NFT Selected:", nft); // Debug log
@@ -737,32 +731,19 @@ const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
   );
 };
 
-      useEffect(() => {
-        const handleResize = () => {
-          if (containerRef.current && image) {
-            const container = containerRef.current;
-            const rect = container.getBoundingClientRect();
-            const maxSize = Math.min(rect.width, window.innerHeight - 400);
-            
-            const imageAspectRatio = image.width / image.height;
-            let width, height;
-            
-            if (imageAspectRatio > 1) {
-              width = maxSize;
-              height = maxSize / imageAspectRatio;
-            } else {
-              height = maxSize;
-              width = maxSize * imageAspectRatio;
-            }
-            
-            setContainerDimensions({ width, height });
-          }
-        };
-      
-        handleResize();
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-      }, [image]);
+useEffect(() => {
+  const handleResize = () => {
+    if (image && containerRef.current) {
+      const containerWidth = containerRef.current.offsetWidth;
+      const maxWidth = Math.min(containerWidth, image.width);
+      const scaleFactor = maxWidth / image.width;
+      const height = image.height * scaleFactor;
+    }
+  };
+  
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
+}, [image]);
 
       const getTotalSupply = async () => {
         try {
@@ -2284,7 +2265,7 @@ return (
     ))}
   </div>
 
-  <div className="relative mx-auto px-20 relative z-10">
+  <div className="relative mx-auto px-4 sm:px-6 md:px-8 lg:px-12 xl:px-20 relative z-10">
     <div className="text-center mb-12 animate-fadeIn">
       <h2 className={`text-5xl font-bold mb-2 transition-colors duration-300 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
         Puzzle Generator
@@ -2302,7 +2283,7 @@ return (
         ? 'bg-gray-800/60 border border-gray-700 shadow-[0_0_20px_rgba(138,92,246,0.9)]' 
         : 'bg-white/80 border border-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.1)]'
     }`}>
-      <div className="grid md:grid-cols-2 gap-8 p-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8 p-4 sm:p-8">
       
           {/* Grid Size and Collection Input */}
           <div className="space-y-12">
@@ -2392,16 +2373,16 @@ return (
             
             <canvas ref={canvasRef} style={{ display: 'none' }} />
 
+            
 <div 
   ref={containerRef}
   key={image?.src}
-  className="puzzle-container relative mx-auto"
+  className="puzzle-container relative mx-auto w-full"
   style={{
-    width: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
+    width: '100%', // Start with full width
+    maxWidth: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
     height: containerDimensions.height > 0 ? `${containerDimensions.height}px` : 'auto',
     aspectRatio: image ? `${image.width}/${image.height}` : '1',
-    maxWidth: '100%',
-    maxHeight: '100%',
     position: 'relative',
     overflow: 'hidden',
     borderRadius: '12px',
