@@ -1,6 +1,5 @@
 import { S3Client, PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { of } from 'ipfs-only-hash';
-import { fetchOpenSeaCollectionData, parseOpenSeaLink } from '../utils/opensea';
 import Arweave from 'arweave';
 
 // 4everland credentials
