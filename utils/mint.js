@@ -2,7 +2,6 @@ import { getAccount } from '@wagmi/core';
 import { createPublicClient, http, parseAbi } from 'viem';
 import { simulateContract, writeContract, readContract } from '@wagmi/core';
 import { parseEther, encodeFunctionData } from 'viem';
-import { useChainId } from 'wagmi';
 import { base, baseSepolia } from 'viem/chains';
 import { CONTRACT_ADDRESSES, SUPPORTED_CHAINS, isChainSupported } from './constants';
 import axios from 'axios';
