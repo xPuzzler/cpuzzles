@@ -219,40 +219,6 @@ const contractABI = [
     accept: {'image/*': ['.jpg', '.jpeg', '.png', '.gif']},
     maxSize: 5 * 1024 * 1024
   });
-
-  const parseNftLink = (url) => {
-    try {
-      // Updated regex to support all networks
-      const openSeaRegex = /opensea\.io\/assets\/(ethereum|base|base_sepolia|arbitrum|arbitrum_sepolia|apechain|apechain_testnet|abstract)\/(.*?)\/(.*?)(?:\/|\?|$)/;
-      const openSeaMatch = url.match(openSeaRegex);
-      
-      if (openSeaMatch) {
-        const chainName = openSeaMatch[1];
-        // Map chain names to chain IDs
-        const chainIdMap = {
-          'ethereum': 1,
-          'base': 8453,
-          'base_sepolia': 84531,
-          'arbitrum': 42161,
-          'arbitrum_sepolia': 421614,
-          'apechain': 204,
-          'abstract': 175177
-        };
-        
-        return {
-          platform: 'opensea',
-          chain: chainName,
-          chainId: chainIdMap[chainName],
-          contractAddress: openSeaMatch[2],
-          tokenId: openSeaMatch[3]
-        };
-      }
-      return null;
-    } catch (error) {
-      console.error('Error parsing NFT link:', error);
-      return null;
-    }
-  };
   
 
   
@@ -508,25 +474,25 @@ const sliceImage = useCallback(() => {
   
   const handleTouchStart = (e, id) => {
     if (!gameStarted) return;
-    
+  
+    e.preventDefault(); // Prevent unintended scrolling or zooming
+  
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${id}`);
     if (!element) return;
-    
+  
     const rect = element.getBoundingClientRect();
     const offsetX = touch.clientX - rect.left;
     const offsetY = touch.clientY - rect.top;
-    
+  
     setDraggingId(id);
     setDragOffset({ x: offsetX, y: offsetY });
-    
-    // Store the initial position of the drag
+  
     const containerRect = containerRef.current.getBoundingClientRect();
     const x = touch.clientX - containerRect.left - offsetX;
     const y = touch.clientY - containerRect.top - offsetY;
     setDragPosition({ x, y });
-    
-    // Apply absolute positioning immediately
+  
     element.style.position = 'absolute';
     element.style.zIndex = '100';
     element.style.left = `${x}px`;
@@ -537,68 +503,60 @@ const sliceImage = useCallback(() => {
   const handleTouchMove = (e) => {
     if (!draggingId) return;
     e.preventDefault(); // Prevent scrolling
-    
+  
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${draggingId}`);
     if (!element) return;
-    
+  
     const containerRect = containerRef.current.getBoundingClientRect();
     const touchX = touch.clientX - containerRect.left;
     const touchY = touch.clientY - containerRect.top;
-    
-    // Calculate position based on touch and offset
+  
     const x = touchX - dragOffset.x;
     const y = touchY - dragOffset.y;
-    
-    // Update drag position state
-    setDragPosition({ x, y });
-    
-    // Apply absolute positioning to follow touch
-    element.style.left = `${x}px`;
-    element.style.top = `${y}px`;
+  
+    // Optimize performance by using requestAnimationFrame
+    requestAnimationFrame(() => {
+      setDragPosition({ x, y });
+      element.style.left = `${x}px`;
+      element.style.top = `${y}px`;
+    });
   };
   
   const handleTouchEnd = (e) => {
     if (!draggingId) return;
-    
+  
     const draggedPiece = pieces.find(p => p.id === draggingId);
     if (!draggedPiece) return;
-    
+  
     const element = document.getElementById(`piece-${draggingId}`);
     if (!element) return;
-    
-    // Get the final touch position
+  
     const containerRect = containerRef.current.getBoundingClientRect();
     let touchX, touchY;
-    
+  
     if (e.changedTouches && e.changedTouches.length > 0) {
       const touch = e.changedTouches[0];
       touchX = touch.clientX - containerRect.left;
       touchY = touch.clientY - containerRect.top;
     } else {
-      // Fallback if touch data isn't available
       touchX = dragPosition.x + dragOffset.x;
       touchY = dragPosition.y + dragOffset.y;
     }
-    
-    // Find which grid cell it's over
-    const pieceWidth = image.width / gridSize;   // ✅ Uses original image width
-    const pieceHeight = image.height / gridSize; // ✅ Uses original image height
+  
+    const pieceWidth = image.width / gridSize;
+    const pieceHeight = image.height / gridSize;
     
     const gridX = Math.floor(touchX / pieceWidth);
     const gridY = Math.floor(touchY / pieceHeight);
-    
-    // Only swap if we're within grid boundaries
+  
     if (gridX >= 0 && gridX < gridSize && gridY >= 0 && gridY < gridSize) {
-      // Find which piece is currently in this spot
       const targetPiece = pieces.find(p => p.currentX === gridX && p.currentY === gridY);
-      
+  
       if (targetPiece && targetPiece.id !== draggingId) {
-        // Only swap these two pieces
-        setPieces(prevPieces => {
-          return prevPieces.map(piece => {
+        setPieces(prevPieces =>
+          prevPieces.map(piece => {
             if (piece.id === draggingId) {
-              // This is the dragged piece - move it to target position
               return {
                 ...piece,
                 currentX: gridX,
@@ -606,9 +564,7 @@ const sliceImage = useCallback(() => {
                 xPos: gridX * pieceWidth,
                 yPos: gridY * pieceHeight
               };
-            } 
-            else if (piece.id === targetPiece.id) {
-              // This is the target piece - move it to dragged piece's original position
+            } else if (piece.id === targetPiece.id) {
               return {
                 ...piece,
                 currentX: draggedPiece.currentX,
@@ -617,23 +573,20 @@ const sliceImage = useCallback(() => {
                 yPos: draggedPiece.currentY * pieceHeight
               };
             }
-            // All other pieces stay where they are
             return piece;
-          });
-        });
-        
+          })
+        );
         setMoves(m => m + 1);
       }
     }
-    
-    // Reset the element's appearance
+  
     element.classList.remove('dragging');
     element.style.position = '';
     element.style.zIndex = '';
     element.style.left = '';
     element.style.top = '';
     element.style.transform = '';
-    
+  
     setDraggingId(null);
   };
 
