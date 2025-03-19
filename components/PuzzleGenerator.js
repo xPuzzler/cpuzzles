@@ -3066,6 +3066,15 @@ return (
     touch-action: none;
     transform-style: preserve-3d;
   }
+
+  #puzzle-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
         
         @keyframes fadeIn {
           from { opacity: 0; }
