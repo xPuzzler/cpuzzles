@@ -2284,7 +2284,7 @@ return (
     ))}
   </div>
 
-  <div className="container mx-auto px-20 relative z-10">
+  <div className="relative mx-auto px-20 relative z-10">
     <div className="text-center mb-12 animate-fadeIn">
       <h2 className={`text-5xl font-bold mb-2 transition-colors duration-300 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
         Puzzle Generator
