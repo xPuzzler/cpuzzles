@@ -1,5 +1,5 @@
 // pages/api/resolve/[hash].js
-import { getTokenIdByHash } from '././utils/db'; // You'll need to implement this
+import { getTokenIdByHash } from '../../../utils/db';
 
 export default async function handler(req, res) {
   const { hash } = req.query;
