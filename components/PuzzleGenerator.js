@@ -590,6 +590,52 @@ const sliceImage = useCallback(() => {
     setDraggingId(null);
   };
 
+  // Assuming this is part of your puzzle logic script
+
+document.addEventListener("DOMContentLoaded", function () {
+  const puzzleContainer = document.getElementById("puzzle-container");
+  let draggedElement = null;
+
+  // Mouse Events
+  puzzleContainer.addEventListener("mousedown", function (event) {
+      if (event.target.classList.contains("puzzle-piece")) {
+          draggedElement = event.target;
+      }
+  });
+
+  puzzleContainer.addEventListener("mousemove", function (event) {
+      if (draggedElement) {
+          draggedElement.style.left = event.clientX + "px";
+          draggedElement.style.top = event.clientY + "px";
+      }
+  });
+
+  puzzleContainer.addEventListener("mouseup", function () {
+      draggedElement = null;
+  });
+
+  // Touch Events
+  puzzleContainer.addEventListener("touchstart", function (event) {
+      if (event.target.classList.contains("puzzle-piece")) {
+          draggedElement = event.target;
+      }
+  });
+
+  puzzleContainer.addEventListener("touchmove", function (event) {
+      if (draggedElement) {
+          let touch = event.touches[0];
+          draggedElement.style.left = touch.clientX + "px";
+          draggedElement.style.top = touch.clientY + "px";
+          event.preventDefault(); // Prevent scrolling while dragging
+      }
+  });
+
+  puzzleContainer.addEventListener("touchend", function () {
+      draggedElement = null;
+  });
+});
+
+
   useEffect(() => {
     if (pieces.length > 0 && gameStarted && moves > 0) {
       const isSolved = pieces.every(piece => 
