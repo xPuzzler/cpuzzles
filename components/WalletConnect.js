@@ -1,6 +1,6 @@
 import React from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { base, baseSepolia } from 'wagmi/chains';
+import { base, baseSepolia } from 'viem/chains';
 import NetworkSwitch from './NetworkSwitch'; // Make sure to create this component
 
 const WalletConnect = () => {

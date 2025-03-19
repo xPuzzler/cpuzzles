@@ -14,7 +14,6 @@ import { uploadToArweave } from '../utils/ipfs';
 import { mintPuzzleNFT, getRemainingMints, getMintPrice, MAX_PER_WALLET } from '../utils/mint';
 import { ethers } from 'ethers';
 import contractABI from '../utils/contractABI.json';
-import { fetchOpenSeaCollectionData, parseOpenSeaLink } from '../utils/opensea';
 import { PUZZLE_NFT_ABI } from '../utils/mint';
 
 const PuzzleGenerator = ({ nft }) => {
@@ -255,102 +254,7 @@ const contractABI = [
     }
   };
   
-  
- // Updated handleNftLinkChange function in puzzlegenerator.js
- const handleNftLinkChange = async (e) => {
-  const url = e.target.value.trim(); // Trim whitespace
-  setNftLink(url);
-  setIsValidatingLink(true);
-  setError(null);
 
-  try {
-    // Log the URL being processed
-    console.log('Processing URL:', url);
-
-    // Basic URL validation
-    if (!url || !url.includes('opensea.io/assets')) {
-      throw new Error('Invalid OpenSea URL format');
-    }
-
-    const parsedData = parseNftLink(url);
-    console.log('Parsed NFT data:', parsedData);
-
-    if (!parsedData) {
-      throw new Error('Could not parse NFT link. Please check the format.');
-    }
-
-    // Validate chain ID
-    if (!parsedData.chainId) {
-      throw new Error(`Unsupported chain: ${parsedData.chain}`);
-    }
-
-    // Fetch NFT data with retries
-    let retryCount = 0;
-    const maxRetries = 3;
-    let nftData;
-
-    while (retryCount < maxRetries) {
-      try {
-        nftData = await fetchOpenSeaCollectionData(
-          parsedData.contractAddress,
-          parsedData.tokenId,
-          parsedData.chainId
-        );
-        break; // Exit loop if successful
-      } catch (fetchError) {
-        retryCount++;
-        if (retryCount === maxRetries) {
-          throw fetchError;
-        }
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-
-    console.log('Fetched NFT data:', nftData);
-
-    // Validate NFT data
-    if (!nftData || !nftData.imageUrl) {
-      throw new Error('Invalid NFT data received');
-    }
-
-    // Set collection name
-    const collectionName = nftData.collection || `Collection #${parsedData.contractAddress.slice(0, 6)}`;
-    setCollectionName(collectionName);
-
-    // Handle image loading
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = nftData.isAnimated ? (nftData.animationUrl || nftData.imageUrl) : nftData.imageUrl;
-
-    // Set loading states
-    setIsAnimated(nftData.isAnimated);
-    
-    // Handle image load events
-    await new Promise((resolve, reject) => {
-      img.onload = () => {
-        setImage(img);
-        resolve();
-      };
-      img.onerror = () => {
-        reject(new Error('Failed to load NFT image'));
-      };
-    });
-
-    // Update parsed data state
-    setParsedNftData({
-      ...nftData,
-      userTokenId: parsedData.tokenId,
-      collection: collectionName
-    });
-
-  } catch (error) {
-    console.error('Error validating NFT link:', error);
-    setError(error.message || 'Failed to fetch NFT data');
-  } finally {
-    setIsValidatingLink(false);
-  }
-};
   
   // Add this useEffect to monitor collection name changes
   useEffect(() => {
