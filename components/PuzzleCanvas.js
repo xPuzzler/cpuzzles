@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as PIXI from 'pixi.js';
+import { useEffect } from 'react';
 import { Shuffle, RotateCw } from 'lucide-react';
 
 const PuzzleCanvas = ({ 

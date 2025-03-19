@@ -1,8 +1,8 @@
 // components/NetworkSwitch.js
-import { useSwitchChain } from 'wagmi';
+import { useSwitchNetwork } from 'wagmi';
 
 const NetworkSwitch = () => {
-  const { switchNetwork } = useSwitchChain();
+  const { switchNetwork } = useSwitchNetwork();
   
   return (
     <div className="network-switch-buttons">

@@ -9,21 +9,14 @@ const arweave = Arweave.init({
 });
 
 let walletKey;
-let arweaveEnabled = false;
-
 try {
-  if (process.env.ARWEAVE_WALLET_KEY) {
-    walletKey = JSON.parse(process.env.ARWEAVE_WALLET_KEY);
-    arweaveEnabled = true;
-  } else if (process.env.NEXT_PUBLIC_ARWEAVE_WALLET_KEY) {
-    walletKey = JSON.parse(process.env.NEXT_PUBLIC_ARWEAVE_WALLET_KEY);
-    arweaveEnabled = true;
-  } else {
-    console.warn('Arweave wallet key not found, related functionality will be disabled');
+  walletKey = JSON.parse(process.env.NEXT_PUBLIC_ARWEAVE_WALLET_KEY);
+  if (!walletKey) {
+    throw new Error('Arweave wallet key not found in environment variables');
   }
 } catch (error) {
   console.error('Failed to parse Arweave wallet key:', error);
-  console.warn('Arweave functionality will be disabled');
+  throw new Error('Invalid Arweave wallet configuration');
 }
 
 /**
@@ -33,10 +26,6 @@ try {
  * @returns {Promise<string>} - The Arweave URL of the uploaded content
  */
 export const uploadToArweave = async (content, contentType = 'text/html') => {
-  if (!arweaveEnabled) {
-    console.warn('Arweave upload attempted but Arweave is not configured');
-    return null; // Or return a fallback ID or throw a more specific error
-  }
   try {
     // Convert content to buffer if it's a string
     const data = typeof content === 'string' ? 

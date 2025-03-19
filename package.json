@@ -15,11 +15,12 @@
     "@rainbow-me/rainbowkit": "^2.2.4",
     "@tanstack/react-query": "^5.36.3",
     "@wagmi/connectors": "^5.7.8",
-    "@wagmi/core": "^2.5.7",
+    "@wagmi/core": "^2.16.5",
     "arweave": "^1.13.0",
     "axios": "^1.8.2",
     "buffer": "^6.0.3",
-    "ethers": "^6.11.1",
+    "cross-fetch": "^4.1.0",
+    "ethers": "^6.4.0",
     "ipfs-only-hash": "^4.0.0",
     "lucide-react": "^0.479.0",
     "next": "^14.1.0",
@@ -31,9 +32,8 @@
     "react-dropzone": "^14.3.8",
     "react-use": "^17.6.0",
     "uuid": "^11.1.0",
-    "@irys/sdk": "^0.1.1",
-    "viem": "^2.7.9",
-    "wagmi": "^2.5.7"
+    "viem": "^2.23.9",
+    "wagmi": "^2.14.12"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",

@@ -15,16 +15,14 @@ import { mintPuzzleNFT, getRemainingMints, getMintPrice, MAX_PER_WALLET } from '
 import { ethers } from 'ethers';
 import contractABI from '../utils/contractABI.json';
 import { fetchOpenSeaCollectionData, parseOpenSeaLink } from '../utils/opensea';
-import dynamic from 'next/dynamic'
+import { PUZZLE_NFT_ABI } from '../utils/mint';
 
-const PuzzleGenerator = () => {
-
-const [isDarkMode, setIsDarkMode] = useState(true);
-  const { width, height } = useWindowSize();
+const PuzzleGenerator = ({ nft }) => {
+  const [gridSize, setGridSize] = useState(3);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   const { address } = useAccount();
   const { data: balance } = useBalance({ address });
   const [image, setImage] = useState(null);
-  const [gridSize, setGridSize] = useState(3);
   const [pieces, setPieces] = useState([]);
   const [solved, setSolved] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
@@ -36,8 +34,6 @@ const [isDarkMode, setIsDarkMode] = useState(true);
   const [error, setError] = useState(null);
   const [mintedTokenId, setMintedTokenId] = useState(null);
   const [remainingMints, setRemainingMints] = useState(0);
-  const canvasRef = useRef(null);
-  const containerRef = useRef(null);
   const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
   const [success, setSuccess] = useState(false);
   const [touchSupported, setTouchSupported] = useState(false);
@@ -47,7 +43,6 @@ const [isDarkMode, setIsDarkMode] = useState(true);
   const [showEffectOverlay, setShowEffectOverlay] = useState(false);
   const [hasBeenSolved, setHasBeenSolved] = useState(false);
   const chainId = useChainId();
-  // Add this with your other state declarations
 const [mintStatus, setMintStatus] = useState({
   status: null,
   message: '',
@@ -69,10 +64,20 @@ const [lastMintedId, setLastMintedId] = useState(null);
 const [totalSupply, setTotalSupply] = useState(0);
 const [mintedCount, setMintedCount] = useState(0);
 const [maxMints] = useState(MAX_PER_WALLET);
-const [isCustomUpload, setIsCustomUpload] = useState(true);
 const [nftLink, setNftLink] = useState('');
 const [parsedNftData, setParsedNftData] = useState(null);
 const [isValidatingLink, setIsValidatingLink] = useState(false);
+const canvasRef = useRef(null);
+const containerRef = useRef(null);
+const [width, setWidth] = useState(0);
+const [height, setHeight] = useState(0);
+const [selectedNFT, setSelectedNFT] = useState(null);
+const contractAddress = '0x4725F266C295E729F29a295b8F0e560EDD9a28b2'; // Replace with your actual deployed contract address
+const contractABI = [
+  // Replace with the actual ABI of your contract
+  "function MINT_PRICE() external view returns (uint256)",
+  "function MAX_PER_WALLET() external view returns (uint256)"
+];
 
   const colorEffects = [
     { name: 'Normal', filter: 'none' },
@@ -112,22 +117,59 @@ const [isValidatingLink, setIsValidatingLink] = useState(false);
     fetchMints();
   }, [address, chainId]); // Include chainId in dependencies
 
-  // Measure container size
   useEffect(() => {
-    const updateDimensions = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setContainerDimensions({
-          width: rect.width,
-          height: rect.height
-        });
-      }
+    if (nft && nft.image) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        setImage(img);
+      };
+      img.onerror = (e) => {
+        console.error("Error loading NFT image:", e);
+        setImage(null); 
+        // Set a placeholder or handle the error
+      };
+      img.src = `/api/proxy?url=${encodeURIComponent(nft.image)}`;
+    }
+  }, [nft]);
+  useEffect(() => {
+    const updateWindowDimensions = () => {
+      setWidth(window.innerWidth);
+      setHeight(window.innerHeight);
     };
     
-    updateDimensions();
-    window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
+    updateWindowDimensions();
+    window.addEventListener('resize', updateWindowDimensions);
+    
+    return () => {
+      window.removeEventListener('resize', updateWindowDimensions);
+    };
   }, []);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      const updateDimensions = () => {
+        const container = containerRef.current;
+        if (container) {
+          const width = container.clientWidth;
+          const height = container.clientHeight;
+          setContainerDimensions({ width, height });
+        }
+      };
+      
+      updateDimensions();
+      window.addEventListener('resize', updateDimensions);
+      
+      return () => {
+        window.removeEventListener('resize', updateDimensions);
+      };
+    }
+  }, [containerRef, image]);
+
+  const handleSelectNFT = (nft) => {
+    console.log("NFT Selected:", nft); // Debug log
+    setSelectedNFT(nft); // Make sure this updates state
+};
 
   const handleEffectClick = () => {
     if (solved || hasBeenSolved) {
@@ -212,6 +254,7 @@ const [isValidatingLink, setIsValidatingLink] = useState(false);
       return null;
     }
   };
+  
   
  // Updated handleNftLinkChange function in puzzlegenerator.js
  const handleNftLinkChange = async (e) => {
@@ -316,16 +359,7 @@ const [isValidatingLink, setIsValidatingLink] = useState(false);
     }
   }, [collectionName]);
 
-  const toggleUploadType = () => {
-    setIsCustomUpload(prev => !prev);
-    if (!isCustomUpload) {
-      // Switching to custom, reset NFT-related fields
-      setNftLink('');
-      setParsedNftData(null);
-      setCollectionName(CUSTOM_COLLECTION_NAME);
-      setTokenIdInput('');
-    }
-  };
+
 
 // Replace the existing sliceImage function
 const sliceImage = useCallback(() => {
@@ -644,8 +678,8 @@ const sliceImage = useCallback(() => {
     }
     
     // Find which grid cell it's over
-    const pieceWidth = containerDimensions.width / gridSize;
-    const pieceHeight = containerDimensions.height / gridSize;
+    const pieceWidth = image.width / gridSize;   // ✅ Uses original image width
+    const pieceHeight = image.height / gridSize; // ✅ Uses original image height
     
     const gridX = Math.floor(touchX / pieceWidth);
     const gridY = Math.floor(touchY / pieceHeight);
@@ -831,29 +865,45 @@ const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
         try {
           if (!window.ethereum) throw new Error('No Web3 Provider found');
           
-          // Check if contract address is defined
-          const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
-          if (!contractAddress) {
-            console.error('Contract address is not defined in environment variables');
-            throw new Error('Contract configuration missing');
+          // Check if ethers is properly imported and initialized
+          if (!ethers || !ethers.BrowserProvider) {
+            console.error('Ethers.js not properly initialized');
+            throw new Error('Ethers.js library not available');
           }
           
-          // Updated for ethers v6
           const provider = new ethers.BrowserProvider(window.ethereum);
-          const signer = await provider.getSigner();
+          
+          // Make sure PUZZLE_NFT_ABI is properly imported
+          if (!PUZZLE_NFT_ABI) {
+            console.error('PUZZLE_NFT_ABI is undefined');
+            throw new Error('Contract ABI not available');
+          }
+          
           const contract = new ethers.Contract(
-            contractAddress,
-            contractABI,
-            signer
+            process.env.NEXT_PUBLIC_CONTRACT_ADDRESS,
+            PUZZLE_NFT_ABI,
+            provider
           );
           
+          // The ABI does contain totalSupply, but we can still check as a best practice
+          if (!contract.totalSupply) {
+            console.error('totalSupply function not found in contract ABI');
+            throw new Error('Contract method not found');
+          }
+          
           const supply = await contract.totalSupply();
-          console.log('Current total supply:', supply.toString());
-          return Number(supply);
+          console.log('✅ Current total supply:', supply.toString());
+          
+          // Convert to number for easier use in JS
+          const totalSupply = Number(supply);
+          if (isNaN(totalSupply) || totalSupply < 0) {
+            throw new Error("Invalid total supply received");
+          }
+          
+          return totalSupply;
         } catch (error) {
-          console.error('Error getting total supply:', error);
-          // Return 0 as default if there's an error
-          return 0;
+          console.error('❌ Error getting total supply:', error);
+          return null;
         }
       };
 
@@ -863,86 +913,189 @@ const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
           setError(null);
           setMintError(null);
       
-          // Initial validations
-          if (!address) throw new Error('Wallet not connected');
-          if (!chainId) throw new Error('Chain ID not available');
-          if (!image) throw new Error('No image selected for minting');
+          if (!nft) {
+            throw new Error("No NFT selected!");
+          }
+      
+          console.log("🧩 Minting NFT with:", nft);
+      
+          const { tokenId, collectionName, contractAddress, image } = nft;
+      
+          if (!tokenId || isNaN(tokenId)) {
+            throw new Error("Invalid NFT token ID.");
+          }
+      
+          // ✅ Ensure `getTotalSupply()` is valid
+          let nextTokenId;
+          try {
+            const currentSupply = await getTotalSupply();
+            console.log("📌 Current Supply:", currentSupply);
+      
+            if (currentSupply === null || isNaN(currentSupply) || currentSupply < 0) {
+              throw new Error("getTotalSupply() returned invalid data");
+            }
+      
+            nextTokenId = currentSupply + 1; // ✅ Ensure next ID starts from 1+
+          } catch (error) {
+            console.error("❌ Error getting total supply:", error);
+            throw new Error("Unable to retrieve total supply. Please try again.");
+          }
+      
+          console.log("✅ Next Token ID:", nextTokenId);
+      
+          if (nextTokenId === 0 || isNaN(nextTokenId)) {
+            throw new Error("Invalid next token ID. Please try again.");
+          }
+      
+          // Upload image and metadata
+          const ipfsImageUrl = image;
+          const arweaveId = await uploadPuzzleHTML(ipfsImageUrl, gridSize, collectionName);
+      
+          const metadata = createPuzzleMetadata(
+            ipfsImageUrl,
+            gridSize,
+            arweaveId,
+            nextTokenId,
+            tokenId,
+            collectionName,
+            moves,
+            contractAddress
+          );
+      
+          console.log("📝 Metadata Created:", metadata);
+      
+          const metadataUrl = await uploadMetadataToIPFS(metadata, nextTokenId);
+      
+          const result = await mintPuzzleNFT(metadataUrl, gridSize, chainId, address, tokenId);
+      
+          if (result.success) {
+            setMintStatus({
+              status: "success",
+              message: "Your Web3 Puzzles NFT has been minted!",
+              tokenId: nextTokenId,
+              hash: result.hash,
+            });
+      
+            console.log("✅ Mint successful:", nextTokenId);
+          }
+        } catch (error) {
+          console.error("🚨 Mint error:", error);
+          setMintStatus({
+            status: "error",
+            message: error.message,
+          });
+          setError(error.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+    const renderSelectedNFT = () => {
+      if (!nft) return null;
+  
+  return (
+    <div className={`mb-8 rounded-2xl p-6 transition-all duration-500 overflow-hidden animate-fadeIn ${
+      isDarkMode 
+        ? 'bg-gray-800/60 border border-gray-700 shadow-[0_0_20px_rgba(138,92,246,0.9)]' 
+        : 'bg-white/80 border border-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.1)]'
+    }`}>
+      <h3 className={`text-xl font-bold mb-4 transition-colors duration-300 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+        Selected NFT
+      </h3>
+      
+      <div className="grid md:grid-cols-2 gap-8">
+        <div className="flex flex-col">
+          <div className={`rounded-xl overflow-hidden mb-4 border ${
+            isDarkMode ? 'border-gray-700' : 'border-gray-200'
+          }`}>
+            <img 
+              src={nft.image} 
+              alt={nft.name} 
+              className="w-full h-auto object-contain"
+              onError={(e) => {
+                console.error("Image failed to load:", nft.image);
+                e.target.src = "/placeholder.jpg";
+              }} 
+            />
+          </div>
           
-           // Get next token ID from total supply
-    let nextTokenId;
-    try {
-      const currentSupply = await getTotalSupply();
-      nextTokenId = currentSupply;
-    } catch (error) {
-      console.error('Error getting total supply:', error);
-      nextTokenId = 0;
-    }
-
-    // Initialize variables at the top level
-    let userTokenId, collectionName;
-
-    // Handle userTokenId and collection name based on upload type
-    if (isCustomUpload) {
-      userTokenId = nextTokenId.toString();
-      collectionName = 'Custom Puzzles';
-    } else {
-      if (!parsedNftData) {
-        throw new Error('Please enter a valid NFT link');
-      }
-      userTokenId = parsedNftData.userTokenId;
-      collectionName = parsedNftData.collection;
-    }
-
-    // Upload image and metadata
-    const imageFile = await convertImageToFile(image);
-    const { imageUrl } = await uploadImageToIPFS(imageFile, nextTokenId);
-    const arweaveId = await uploadPuzzleHTML(imageUrl, gridSize, collectionName);
-
-    // Create metadata with proper parameters
-    const metadata = createPuzzleMetadata(
-      imageUrl,
-      gridSize,
-      arweaveId,
-      nextTokenId, 
-      userTokenId, 
-      collectionName,
-      moves,
-      isCustomUpload,
-      parsedNftData?.contractAddress
-    );
-
-    // Continue with minting process...
-    const metadataUrl = await uploadMetadataToIPFS(metadata, nextTokenId);
-    const result = await mintPuzzleNFT(metadataUrl, gridSize, chainId, address);
-
-    if (result.success) {
-      // Update states after successful mint
-      const newTotalSupply = await getTotalSupply();
-      const remaining = await getRemainingMints(address, chainId);
-      const minted = MAX_PER_WALLET - remaining;
-      
-      setRemainingMints(remaining);
-      setMintedCount(minted);
-      setTotalSupply(newTotalSupply);
-      
-      setMintStatus({
-        status: 'success',
-        message: 'Your interactive puzzle NFT has been minted!',
-        tokenId: nextTokenId,
-        hash: result.hash,
-        totalSupply: newTotalSupply
-      });
-    }
-  } catch (error) {
-    console.error('Mint error:', error);
-    setMintStatus({
-      status: 'error',
-      message: error.message
-    });
-    setError(error.message);
-  } finally {
-    setLoading(false);
-  }
+          <a 
+            href={nft.openSeaUrl || `https://testnets.opensea.io/assets/${nft.contractAddress}/${nft.tokenId}`} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all duration-300 ${
+              isDarkMode 
+                ? 'bg-blue-600/70 hover:bg-blue-500/70 text-white' 
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+          >
+            <ExternalLink size={18} />
+            View on OpenSea
+          </a>
+        </div>
+        
+        <div>
+          <div className={`rounded-xl p-4 mb-4 ${
+            isDarkMode ? 'bg-gray-900/70 text-gray-300' : 'bg-gray-50 text-gray-700'
+          }`}>
+            <h4 className={`text-lg font-medium mb-3 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+              NFT Details
+            </h4>
+            
+            <div className="space-y-3">
+              <div>
+                <span className={`block text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Collection:
+                </span>
+                <span className="font-medium">
+                  {nft.collectionName || "Unknown Collection"}
+                </span>
+              </div>
+              <div>
+                <span className={`block text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Name:
+                </span>
+                <span className="font-medium">
+                  {nft.name}
+                </span>
+              </div>
+              <div>
+                <span className={`block text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Token ID:
+                </span>
+                <span className="font-medium">
+                  #{nft.tokenId}
+                </span>
+              </div>
+              <div>
+                <span className={`block text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Contract:
+                </span>
+                <span className="font-medium truncate">
+                  {nft.contractAddress.substring(0, 6)}...{nft.contractAddress.substring(nft.contractAddress.length - 4)}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <div className={`flex items-center gap-4 mb-4 p-4 rounded-xl ${
+            isDarkMode ? 'bg-purple-900/20 text-purple-300 border border-purple-800/30' : 'bg-purple-50 text-purple-700 border border-purple-100'
+          }`}>
+            <div className="p-2 rounded-full bg-opacity-20 bg-purple-500">
+              <Puzzle size={20} />
+            </div>
+            <div>
+              <p className="font-medium">Ready to create a puzzle?</p>
+              <p className="text-sm opacity-80">Your NFT will load on the Generator below.  <br />
+                Try and solve the puzzle before Hitting MINT!
+                <br />
+                </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 // Image conversion helper
@@ -1000,9 +1153,9 @@ const uploadPuzzleHTML = async (imageUrl, gridSize, collectionName) => {
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Interactive Puzzle NFT</title>
+          <title>Web3 Puzzles</title>
           <style>
-            /* Base Styles */
+         /* Base Styles */
 :root {
   --puzzle-size: min(95vw, 95vh);
   --grid-size: ${gridSize};
@@ -1016,8 +1169,8 @@ const uploadPuzzleHTML = async (imageUrl, gridSize, collectionName) => {
   --text-dim: #94a3b8;
   --glass-bg: rgba(15, 23, 42, 0.7);
   --button-size: 40px;
-  --button-radius: 12px;
-  --transition-default: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --button-radius: 8px;
+  --transition-default: all 0.3s cubic-bezier(0.2, 0, 0.2, 1);
 }
 
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
@@ -1084,9 +1237,9 @@ body {
   width: calc(100% / var(--grid-size));
   height: calc(100% / var(--grid-size));
   transform-origin: center;
-  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
-              left 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
-              top 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: transform 0.3s cubic-bezier(0.2, 0, 0.2, 1), 
+              left 0.3s cubic-bezier(0.2, 0, 0.2, 1), 
+              top 0.3s cubic-bezier(0.2, 0, 0.2, 1);
   cursor: grab;
   background-size: calc(var(--grid-size) * 100%) calc(var(--grid-size) * 100%);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1127,7 +1280,7 @@ body {
   pointer-events: auto;
 }
 
-/* Menu Styles */
+/* Menu Styles - Completely redesigned */
 .menu-dots {
   position: absolute;
   top: 15px;
@@ -1138,44 +1291,62 @@ body {
 .menu-button {
   width: var(--button-size);
   height: var(--button-size);
-  border-radius: var(--button-radius);
-  background: var(--glass-bg);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: none;
   color: white;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: var(--transition-default);
-  font-size: 20px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  font-size: 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .menu-button:hover, .menu-button.hovering {
   background: var(--primary-color);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 15px rgba(99, 102, 241, 0.4);
-  filter: invert(1);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.menu-button::before, 
+.menu-button::after {
+  content: "";
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 50%;
+  transition: var(--transition-default);
+}
+
+.menu-button::before {
+  transform: translateX(-6px);
+}
+
+.menu-button::after {
+  transform: translateX(6px);
 }
 
 .menu-popup {
   position: absolute;
   top: 110%;
   left: 0;
-  margin-top: 8px;
-  background: var(--glass-bg);
+  margin-top: 10px;
+  background: rgba(30, 41, 59, 0.95);
   backdrop-filter: blur(15px);
   -webkit-backdrop-filter: blur(15px);
-  border-radius: var(--button-radius);
+  border-radius: 12px;
   padding: 6px;
   display: none;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
   transform: translateY(-10px);
   opacity: 0;
   transition: var(--transition-default);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .menu-popup.active {
@@ -1187,21 +1358,22 @@ body {
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: 10px;
+  padding: 12px 16px;
   color: white;
   text-decoration: none;
-  border-radius: 8px;
+  border-radius: 6px;
   transition: all 0.2s;
   white-space: nowrap;
   font-weight: 500;
   margin: 4px 0;
   font-size: 14px;
+  letter-spacing: 0.3px;
 }
 
 .menu-item:hover {
-  background: var(--primary-color);
-  transform: translateX(3px);
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateX(2px);
 }
 
 /* Collection Info */
@@ -1210,21 +1382,23 @@ body {
   top: 15px;
   right: 15px;
   padding: 8px 16px;
-  background: var(--glass-bg);
+  background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: none;
   color: white;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   z-index: 10;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  letter-spacing: 0.5px;
 }
 
 .collection-info.hovering {
-  filter: invert(1);
   background: var(--primary-color);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
 }
 
 /* Success Message */
@@ -1263,21 +1437,24 @@ body {
   transition: opacity 0.5s, transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-/* Pull Up Container */
+/* Pull Up Container - Completely redesigned */
 .pull-up-container {
   position: absolute;
   bottom: 15px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
+  display: flex; 
+  align-items: center;
+  justify-content: center;
+  width: var(--button-size);
 }
 
 .pull-up-button {
   background: var(--glass-bg);
   backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--button-radius);
+  border-radius: 50%;
   width: var(--button-size);
   height: var(--button-size);
   display: flex;
@@ -1285,44 +1462,65 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: var(--transition-default);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
 }
 
-.pull-up-button:hover, .pull-up-button.hovering {
+.pull-up-button:hover {
   background: var(--primary-color);
-  transform: translateY(-3px);
-  box-shadow: 0 6px 15px rgba(99, 102, 241, 0.4);
-  filter: invert(1);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(99, 102, 241, 0.4);
 }
 
 .arrow {
-  border: solid white;
-  border-width: 0 2px 2px 0;
   display: inline-block;
-  padding: 4px;
-  transition: transform 0.3s ease;
+  width: 12px;
+  height: 12px;
+  border-right: 2px solid white;
+  border-bottom: 2px solid white;
+  transform: rotate(-45deg); /* Makes it look like an upward arrow */
 }
 
-.up {
+.arrow::before {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 2px;
+  background: white;
+  transform: rotate(45deg);
+  left: 0;
+  top: 5px;
+}
+
+.arrow::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 2px;
+  background: white;
+  transform: rotate(-45deg);
+  right: 0;
+  top: 5px;
+}
+  .up {
   transform: rotate(-135deg);
 }
 
 .grid-options {
   position: absolute;
-  bottom: 65px;
+  bottom: 55px;
   left: 50%;
   transform: translateX(-50%) translateY(20px);
-  background: var(--glass-bg);
+  background: rgba(30, 41, 59, 0.95);
   backdrop-filter: blur(15px);
   -webkit-backdrop-filter: blur(15px);
   padding: 8px;
-  border-radius: var(--button-radius);
+  border-radius: 12px;
   display: none;
   gap: 8px;
   opacity: 0;
   transition: var(--transition-default);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .grid-options.active {
@@ -1333,41 +1531,146 @@ body {
 
 .grid-option {
   color: white;
-  padding: 8px 12px;
+  padding: 8px 14px;
   cursor: pointer;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
   transition: var(--transition-default);
   font-weight: 500;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: none;
   font-size: 14px;
+  letter-spacing: 0.3px;
 }
 
 .grid-option:hover {
   background: var(--primary-color);
-  transform: translateY(-2px) scale(1.05);
-  box-shadow: 0 5px 15px rgba(99, 102, 241, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(99, 102, 241, 0.4);
 }
 
-/* Hover invert effect */
-.invert-hover.hovering {
-  filter: invert(1);
-  background: var(--primary-color) !important;
-}
-
-/* Confetti */
+/* Confetti - Completely redesigned */
 .confetti {
   position: absolute;
   top: -10px;
-  width: 10px;
-  height: 20px;
+  width: 6px;
+  height: 12px;
+  background-color: transparent;
+  opacity: 0.9;
+  transform-origin: center;
+  animation: fadeOut 2.5s ease-out forwards;
+}
+
+/* Multiple confetti types */
+.confetti:nth-child(4n) {
   background-color: var(--primary-color);
-  opacity: 0.8;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+
+.confetti:nth-child(4n+1) {
+  background-color: var(--accent-color);
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+}
+
+.confetti:nth-child(4n+2) {
+  background-color: #10b981; /* Emerald */
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.confetti:nth-child(4n+3) {
+  background-color: #ec4899; /* Pink */
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  width: 10px;
+  height: 10px;
 }
 
 @keyframes fadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  0% { opacity: 1; transform: translateY(0) rotate(0deg); }
+  100% { opacity: 0; transform: translateY(100px) rotate(360deg); }
+}
+
+/* Invert hover effect - simplified */
+.invert-hover.hovering {
+  background: var(--primary-color);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+/* Additional styling for menu items */
+.menu-item[data-action="shuffle"] {
+  display: flex;
+  align-items: center;
+}
+
+.menu-item[data-action="shuffle"]::before {
+  content: "↻";
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.menu-item[data-action="reset"] {
+  display: flex;
+  align-items: center;
+}
+
+.menu-item[data-action="reset"]::before {
+  content: "⟳";
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.menu-item[data-action="effects"] {
+  display: flex;
+  align-items: center;
+}
+
+.menu-item[data-action="effects"]::before {
+  content: "✨";
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .menu-item {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  
+  .pull-up-button {
+    width: 70px;
+    height: 30px;
+  }
+  
+  .collection-info {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --button-size: 36px;
+  }
+  
+  .menu-popup {
+    min-width: 140px;
+  }
+  
+  .success-message {
+    font-size: 36px;
+  }
+
+  properties: {
+  ...otherProperties,
+  original_width: image.width,  // ✅ Original width
+  original_height: image.height // ✅ Original height
+}
+  
+  .success-message span {
+    font-size: 16px;
+  }
 }
           </style>
         </head>
@@ -1378,7 +1681,7 @@ body {
   </div>
 
   <div class="menu-dots ui-element invert-hover">
-    <button class="menu-button" onclick="toggleMenu()">⋮</button>
+    <button class="menu-button" onclick="toggleMenu()">≡</button>
     <div id="menu-popup" class="menu-popup">
       <a href="#" class="menu-item" onclick="cycleEffects()">✨ Effects</a>
       <a href="#" class="menu-item" onclick="shufflePieces()">🔄 Shuffle</a>
@@ -1400,8 +1703,7 @@ body {
       <div class="grid-option" onclick="changeGridSize(4)">4×4</div>
       <div class="grid-option" onclick="changeGridSize(5)">5×5</div>
     </div>
-    <button class="pull-up-button invert-hover" onclick="toggleGridOptions()">
-      <i class="arrow up"></i>
+    <button class="pull-up-button invert-hover" onclick="toggleGridOptions()">▲</button>
     </button>
   </div>
 
@@ -2011,454 +2313,351 @@ document.addEventListener('click', (e) => {
 };
 
 return (
-  <section id="create" className="py-8 relative min-h-screen transition-all duration-500" 
-    style={{
-      background: isDarkMode 
-        ? 'radial-gradient(circle at center, #1a1a2e 0%, #16213e 50%, #0f172a 100%)' 
-        : 'radial-gradient(circle at center, #e0f2fe 0%, #bfdbfe 50%, #93c5fd 100%)'
-    }}>
-    
-    {/* Theme Toggle Button */}
-    <button 
-  onClick={() => setIsDarkMode(!isDarkMode)}
-  className="absolute top-4 right-4 p-3 rounded-full transition-all duration-500 hover:scale-105 cursor-pointer"
+  <section id="create" className="py-12 relative min-h-screen transition-all duration-500" 
   style={{
     background: isDarkMode 
-      ? 'rgba(255,255,255,0.1)' 
-      : 'rgba(0,0,0,0.1)',
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
-    boxShadow: isDarkMode 
-      ? '0 0 20px rgba(255,255,255,0.15)' 
-      : '0 0 20px rgba(0,0,0,0.15)',
-    border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-    width: '56px',
-    height: '56px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  }}
-  aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
->
-  <div className="transition-all duration-500 transform" 
+      ? 'radial-gradient(circle at center, #1a1a2e 0%, #16213e 50%, #0f172a 100%)' 
+      : 'radial-gradient(circle at center, #e0f2fe 0%, #bfdbfe 50%, #93c5fd 100%)'
+  }}>
+  
+  {/* Theme Toggle Button */}
+  <button 
+    onClick={() => setIsDarkMode(!isDarkMode)}
+    className="absolute top-4 right-4 p-3 rounded-full transition-all duration-500 hover:scale-105 cursor-pointer"
     style={{
-      opacity: isDarkMode ? 1 : 0,
-      position: 'absolute',
-      transform: isDarkMode ? 'scale(1) rotate(0deg)' : 'scale(0.5) rotate(-90deg)'
-    }}>
-    <Sun className="text-yellow-300" size={32} />
-  </div>
-  <div className="transition-all duration-500 transform"
-    style={{
-      opacity: isDarkMode ? 0 : 1,
-      position: 'absolute',
-      transform: isDarkMode ? 'scale(0.5) rotate(90deg)' : 'scale(1) rotate(0deg)'
-    }}>
-    <Moon className="text-indigo-700" size={32} />
-  </div>
-</button>
-
-    {/* Animated Background Elements */}
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {[...Array(20)].map((_, i) => (
-        <div 
-          key={i}
-          className="absolute rounded-full opacity-20"
-          style={{
-            width: Math.random() * 100 + 50 + 'px',
-            height: Math.random() * 100 + 50 + 'px',
-            left: Math.random() * 100 + '%',
-            top: Math.random() * 100 + '%',
-            background: isDarkMode 
-              ? `rgba(${Math.floor(Math.random() * 100 + 100)}, ${Math.floor(Math.random() * 100 + 100)}, ${Math.floor(Math.random() * 255)}, 0.2)` 
-              : `rgba(${Math.floor(Math.random() * 100 + 100)}, ${Math.floor(Math.random() * 100 + 155)}, ${Math.floor(Math.random() * 255)}, 0.3)`,
-            animation: `float ${Math.random() * 10 + 10}s infinite ease-in-out`,
-            animationDelay: `${Math.random() * 5}s`
-          }}
-        />
-      ))}
+      background: isDarkMode 
+        ? 'rgba(255, 255, 255, 0.1)' 
+        : 'rgba(0,0,0,0.1)',
+      backdropFilter: 'blur(8px)',
+      WebkitBackdropFilter: 'blur(8px)',
+      boxShadow: isDarkMode 
+        ? '0 0 20px rgba(255,255,255,0.15)' 
+        : '0 0 20px rgba(0,0,0,0.15)',
+      border: `1px solid ${isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+      width: '56px',
+      height: '56px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}
+    aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+  >
+    <div className="transition-all duration-500 transform" 
+      style={{
+        opacity: isDarkMode ? 1 : 0,
+        position: 'absolute',
+        transform: isDarkMode ? 'scale(1) rotate(0deg)' : 'scale(0.5) rotate(-90deg)'
+      }}>
+      <Sun className="text-yellow-300" size={32} />
     </div>
+    <div className="transition-all duration-500 transform"
+      style={{
+        opacity: isDarkMode ? 0 : 1,
+        position: 'absolute',
+        transform: isDarkMode ? 'scale(0.5) rotate(90deg)' : 'scale(1) rotate(0deg)'
+      }}>
+      <Moon className="text-indigo-700" size={32} />
+    </div>
+  </button>
 
-    <div className="container mx-auto px-4 relative z-10">
-      <div className="text-center mb-12 animate-fadeIn">
-        <h2 className={`text-5xl font-bold mb-2 transition-colors duration-300 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-          Puzzle Generator
-        </h2>
-        <p className={`text-xl transition-colors duration-300 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} max-w-2xl mx-auto`}>
-          Create your own puzzle from any image or GIF and mint it as an NFT
-        </p>
-      </div>
-
-      <div className={`max-w-4xl mx-auto rounded-2xl transition-all duration-500 overflow-hidden animate-slideUp ${
-        isDarkMode 
-          ? 'bg-gray-800/60 border border-gray-700 shadow-[0_0_20px_rgba(138,92,246,0.2)]' 
-          : 'bg-white/80 border border-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.1)]'
-      }`}>
-        <div className="grid md:grid-cols-2 gap-8 p-8">
-          {/* Image Upload Section */}
-          <div className="space-y-6">
-            {/* Image Upload */}
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-300 group
-              ${isDragActive 
-                ? (isDarkMode ? 'border-purple-400 bg-purple-900/20' : 'border-purple-500 bg-purple-100') 
-                : isDarkMode 
-                  ? 'border-gray-600 hover:border-purple-400 hover:bg-purple-900/10' 
-                  : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50'}`}
-            >
-              <input {...getInputProps()} />
-              <Upload className={`mx-auto mb-4 transition-transform group-hover:scale-110 ${
-                isDarkMode ? 'text-purple-400' : 'text-purple-500'
-              }`} size={40} />
-              <p className={`transition-colors ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                {isDragActive ? 'Drop image here' :
-                  'Drag & drop image or GIF, or click to select (max 5MB)'}
-              </p>
-              <p className={`mt-2 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                PNG, JPG, GIF supported
-              </p>
-            </div>
-
-            {/* Grid Size and Collection Input */}
-            <div className="space-y-5">
-              {/* Grid Size */}
-              <div>
-                <label className={`block mb-2 font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Grid Size</label>
-                <div className="flex gap-2 flex-wrap">
-                  {[2, 3, 4, 5].map(size => (
-                    <button
-                      key={size}
-                      onClick={() => setGridSize(size)}
-                      className={`px-4 py-2 rounded-lg transition-all duration-300 ${
-                        gridSize === size
-                          ? isDarkMode 
-                            ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(138,92,246,0.5)]' 
-                            : 'bg-purple-600 text-white shadow-md'
-                          : isDarkMode
-                            ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                    >
-                      {size}x{size}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Manual Collection Input with animated labels */}
-              <div className="space-y-4">
-  <div className="flex items-center gap-4 mb-4">
-    <button
-      onClick={() => setIsCustomUpload(true)}
-      className={`px-4 py-2 rounded-lg transition-all duration-300 ${
-        isCustomUpload
-          ? isDarkMode 
-            ? 'bg-purple-600 text-white' 
-            : 'bg-purple-600 text-white'
-          : isDarkMode
-            ? 'bg-gray-700 text-gray-300' 
-            : 'bg-gray-200 text-gray-700'
-      }`}
-    >
-      Custom Upload
-    </button>
-    <button
-      onClick={() => setIsCustomUpload(false)}
-      className={`px-4 py-2 rounded-lg transition-all duration-300 ${
-        !isCustomUpload
-          ? isDarkMode 
-            ? 'bg-purple-600 text-white' 
-            : 'bg-purple-600 text-white'
-          : isDarkMode
-            ? 'bg-gray-700 text-gray-300' 
-            : 'bg-gray-200 text-gray-700'
-      }`}
-    >
-      NFT Transform
-    </button>
+  {/* Animated Background Elements */}
+  <div className="absolute inset-0 overflow-hidden pointer-events-none">
+    {[...Array(20)].map((_, i) => (
+      <div 
+        key={i}
+        className="absolute rounded-full opacity-20"
+        style={{
+          width: Math.random() * 100 + 50 + 'px',
+          height: Math.random() * 100 + 50 + 'px',
+          left: Math.random() * 100 + '%',
+          top: Math.random() * 100 + '%',
+          background: isDarkMode 
+            ? `rgba(${Math.floor(Math.random() * 100 + 100)}, ${Math.floor(Math.random() * 100 + 100)}, ${Math.floor(Math.random() * 255)}, 0.2)` 
+            : `rgba(${Math.floor(Math.random() * 100 + 100)}, ${Math.floor(Math.random() * 100 + 155)}, ${Math.floor(Math.random() * 255)}, 0.3)`,
+          animation: `float ${Math.random() * 10 + 10}s infinite ease-in-out`,
+          animationDelay: `${Math.random() * 5}s`
+        }}
+      />
+    ))}
   </div>
 
-  {isCustomUpload ? (
-    <div className={`p-3 rounded-lg ${
-      isDarkMode ? 'bg-gray-900/50' : 'bg-gray-50'
-    }`}>
-      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-        Upload any image to create a custom puzzle
+  <div className="container mx-auto px-20 relative z-10">
+    <div className="text-center mb-12 animate-fadeIn">
+      <h2 className={`text-5xl font-bold mb-2 transition-colors duration-300 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+        Puzzle Generator
+      </h2>
+      <p className={`text-xl transition-colors duration-300 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} max-w-2xl mx-auto`}>
+        {nft ? 'Create a puzzle from your selected NFT' : 'Create a puzzle from your selected NFT'}
       </p>
     </div>
-  ) : (
-    <div className="relative">
-      <input
-        type="text"
-        id="nft-link"
-        placeholder=" "
-        value={nftLink}
-        onChange={handleNftLinkChange}
-        className={`w-full px-4 py-3 rounded-lg outline-none transition-all duration-300 peer ${
-          isDarkMode 
-            ? 'bg-gray-900/80 border border-gray-700 text-white focus:border-purple-500' 
-            : 'bg-white border border-gray-300 text-gray-900 focus:border-purple-500'
-        }`}
-      />
-      <label 
-        htmlFor="nft-link"
-        className={`absolute left-4 transition-all duration-300 pointer-events-none ${
-          nftLink ? 'top-0 text-xs' : 'top-3 text-base'
-        } ${
-          isDarkMode 
-            ? 'text-gray-400 peer-focus:text-purple-400' 
-            : 'text-gray-600 peer-focus:text-purple-600'
-        } peer-focus:top-0 peer-focus:text-xs`}
-      >
-        Paste NFT Link (OpenSea)
-      </label>
-    </div>
-  )}
 
-  {/* Show parsed NFT data if available */}
-  {parsedNftData && !isCustomUpload && (
-  <div className={`p-3 rounded-lg ${
-    isDarkMode ? 'bg-gray-900/50' : 'bg-gray-50'
-  }`}>
-    <div className="text-sm space-y-1">
-      <div className="flex justify-between">
-        <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Collection:</span>
-        <span className="font-medium">{parsedNftData.collection}</span>
-      </div>
-      <div className="flex justify-between">
-        <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Token ID:</span>
-        <span className="font-medium">#{parsedNftData.userTokenId}</span>
-      </div>
-    </div>
-  </div>
-)}
-</div>
+    {/* Render selected NFT section if an NFT is provided */}
+    {nft && renderSelectedNFT()}
 
-              {/* Reset and Shuffle Buttons */}
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={sliceImage}
-                  className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-                    !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
-                  } ${
-                    isDarkMode 
-                      ? 'bg-indigo-600/80 text-white hover:bg-indigo-500' 
-                      : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
-                  }`}
-                  disabled={!image}
-                >
-                  <RotateCw size={18} />
-                  Reset
-                </button>
-                <button
-                  onClick={shufflePieces}
-                  className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-                    !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
-                  } ${
-                    isDarkMode 
-                      ? 'bg-purple-600/80 text-white hover:bg-purple-500' 
-                      : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                  }`}
-                  disabled={!image}
-                >
-                  <Shuffle size={18} />
-                  Shuffle
-                </button>
+    <div className={`max-w-4xl mx-auto rounded-2xl transition-all duration-500 overflow-hidden animate-slideUp ${
+      isDarkMode 
+        ? 'bg-gray-800/60 border border-gray-700 shadow-[0_0_20px_rgba(138,92,246,0.9)]' 
+        : 'bg-white/80 border border-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.1)]'
+    }`}>
+      <div className="grid md:grid-cols-2 gap-8 p-8">
+      
+          {/* Grid Size and Collection Input */}
+          <div className="space-y-12">
+            {/* Grid Size */}
+            <div>
+              <label className={`block mb-4 font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Grid Size</label>
+              <div className="flex gap-2 flex-wrap">
+                {[2, 3, 4, 5].map(size => (
+                  <button
+                    key={size}
+                    onClick={() => setGridSize(size)}
+                    className={`px-8 py-4 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
+                      gridSize === size
+                        ? isDarkMode 
+                          ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(138,92,246,0.5)]' 
+                          : 'bg-purple-600 text-white shadow-md'
+                        : isDarkMode
+                          ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  >
+                    {size}x{size}
+                  </button>
+                ))}
               </div>
+            </div>
+
+            {/* Reset and Shuffle Buttons */}
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => {
+                  if (image) sliceImage(); // ✅ Ensures puzzle pieces refresh with new image
+                }}
+                className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
+                  !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
+                } ${
+                  isDarkMode 
+                    ? 'bg-indigo-600/80 text-white hover:bg-indigo-500' 
+                    : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                }`}
+                disabled={!image}
+              >
+                <RotateCw size={18} />
+                Reset
+              </button>
+              <button
+                onClick={shufflePieces}
+                className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
+                  !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
+                } ${
+                  isDarkMode 
+                    ? 'bg-purple-600/80 text-white hover:bg-purple-500' 
+                    : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                }`}
+                disabled={!image}
+              >
+                <Shuffle size={18} />
+                Shuffle
+              </button>
             </div>
           </div>
 
-          {/* Puzzle Preview Section with glass morphism effect */}
-          <div 
-            className="flex flex-col space-y-4"
-          >
-            <div 
-              className={`rounded-2xl transition-all duration-500 relative overflow-hidden ${
-                isDarkMode 
-                  ? 'bg-gray-900/50 backdrop-blur-md border border-gray-700/50' 
-                  : 'bg-white/30 backdrop-blur-md border border-white/50'
-              }`}
-            >
-              {/* NFT Token Preview when minted */}
-              {mintStatus.status === 'success' && (
-                <div className="absolute top-2 right-2 z-20">
-                  <div className={`px-3 py-1 rounded-full text-xs font-semibold animate-pulse ${
-                    isDarkMode ? 'bg-green-900/70 text-green-300' : 'bg-green-100 text-green-700'
-                  }`}>
-                    Minted #{mintStatus.tokenId}
-                  </div>
-                </div>
-              )}
-              
-              
+          
+        
 
-              
-  <canvas ref={canvasRef} style={{ display: 'none' }} />
-  
-  <div 
+        {/* Puzzle Preview Section with glass morphism effect */}
+        <div 
+          className="flex flex-col space-y-4"
+        >
+          <div 
+            className={`rounded-2xl transition-all duration-500 relative overflow-hidden ${
+              isDarkMode 
+                ? 'bg-gray-900/50 backdrop-blur-md border border-gray-700/50' 
+                : 'bg-white/30 backdrop-blur-md border border-white/50'
+            }`}
+          >
+            {/* NFT Token Preview when minted */}
+            {mintStatus.status === 'success' && (
+              <div className="absolute top-2 right-2 z-20">
+                <div className={`px-3 py-1 rounded-full text-xs font-semibold animate-pulse ${
+                  isDarkMode ? 'bg-green-900/70 text-green-300' : 'bg-green-100 text-green-700'
+                }`}>
+                  Minted #{mintStatus.tokenId}
+                </div>
+              </div>
+            )}
+            
+            <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+<div 
   ref={containerRef}
+  key={image?.src}
   className="puzzle-container relative mx-auto"
   style={{
     width: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
     height: containerDimensions.height > 0 ? `${containerDimensions.height}px` : 'auto',
     aspectRatio: image ? `${image.width}/${image.height}` : '1',
     maxWidth: '100%',
-    maxHeight: 'calc(100vh - 400px)',
+    maxHeight: '100%',
     position: 'relative',
     overflow: 'hidden',
     borderRadius: '12px',
-    touchAction: 'none'
+    touchAction: 'none',
   }}
 >
-    {/* Preview Image */}
-    {image && !gameStarted && (
-      <img
-        src={image.src}
-        alt="Preview"
-        className="absolute inset-0 w-full h-full object-contain animate-fadeIn"
-        style={{
-          filter: isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.2))' : 'none'
-        }}
-      />
-    )}
-
-    {/* Puzzle Pieces */}
-    {gameStarted && (
-      <div
-        className="puzzle-pieces-container"
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: '100%',
-          filter: (solved || hasBeenSolved) 
-            ? `${colorEffects[currentEffect].filter} ${isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.3))' : ''}` 
-            : isDarkMode ? 'drop-shadow(0 0 5px rgba(255,255,255,0.1))' : 'none',
-          transition: 'filter 0.5s ease'
-        }}
-      >
-        {pieces.map(piece => (
-          <PuzzlePiece
-            key={piece.id}
-            piece={piece}
-            onMouseDown={handleMouseDown}
-            onTouchStart={handleTouchStart}
-            isDarkMode={isDarkMode}
-          />
-        ))}
-      </div>
-    )}
-
-    {/* Success Message */}
-    {showSuccessMessage && (
-      <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-2xl font-bold animate-fadeInScale">
-        <div className="transform rotate-3 bg-gradient-to-r from-purple-500 to-indigo-500 px-6 py-4 rounded-xl shadow-xl">
-          Puzzle Solved! 🎉
-        </div>
-      </div>
-    )}
-
-    {/* Confetti */}
-    {showConfetti && (
-      <Confetti
-        width={width}
-        height={height}
-        gravity={0.05}
-        numberOfPieces={200}
-        recycle={false}
-        onConfettiComplete={() => setShowConfetti(false)}
-      />
-    )}
-    {/* Add the effects button here */}
-  {(solved || hasBeenSolved) && (
-    <button
-      onClick={() => {
-        setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
-        setShowEffectOverlay(true);
-        setTimeout(() => setShowEffectOverlay(false), 300);
+  {/* Preview Image */}
+  {image && !gameStarted && (
+    <img
+      src={image.src}
+      alt="Preview"
+      className="absolute inset-0 w-full h-full object-contain animate-fadeIn"
+      style={{
+        filter: isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.2))' : 'none',
+        objectFit: 'contain', // Ensure the image fits within the container without distortion
+        objectPosition: 'center', // Center the image inside the container
       }}
-      className={`absolute bottom-4 right-4 px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-300 ${
-        isDarkMode 
-          ? 'bg-gray-800/80 text-white hover:bg-gray-700' 
-          : 'bg-white/80 text-gray-700 hover:bg-gray-200'
-      } backdrop-blur-sm border border-white/10 shadow-lg`}
-    >
-      <span className="text-sm font-medium">
-        Effect: {colorEffects[currentEffect].name}
-      </span>
-      <svg 
-        xmlns="http://www.w3.org/2000/svg" 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="currentColor" 
-        className="w-4 h-4"
-        strokeWidth="2"
-      >
-        <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" />
-      </svg>
-    </button>
+    />
   )}
 
-  {showEffectOverlay && (
-    <div className="absolute inset-0 bg-white/10 backdrop-blur-sm transition-opacity duration-300" />
-  )}
-</div>
-  
+              
 
-</div>
-            
-            {/* Game Status */}
-            <div className={`rounded-xl p-4 flex justify-between items-center ${
-              isDarkMode 
-                ? 'bg-gray-800/50 text-gray-300' 
-                : 'bg-white/50 text-gray-700'
-            }`}>
-              <div className="flex items-center gap-2">
-                <Puzzle className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} size={20} />
-                <span className="font-medium">
-                  {gameStarted 
-                    ? `Moves: ${moves}` 
-                    : 'Ready to play'}
-                </span>
-              </div>
-              <div>
-                {solved && (
-                  <span className="px-3 py-1 rounded-full text-sm font-semibold bg-green-500/20 text-green-500">
-                    Solved!
+              {/* Puzzle Pieces */}
+              {gameStarted && (
+                <div
+                  className="puzzle-pieces-container"
+                  style={{
+                    position: 'relative',
+                    width: '100%',
+                    height: '100%',
+                    filter: (solved || hasBeenSolved) 
+                      ? `${colorEffects[currentEffect].filter} ${isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.3))' : ''}` 
+                      : isDarkMode ? 'drop-shadow(0 0 5px rgba(255,255,255,0.1))' : 'none',
+                    transition: 'filter 0.5s ease'
+                  }}
+                >
+                  {pieces.map(piece => (
+                    <PuzzlePiece
+                      key={piece.id}
+                      piece={piece}
+                      onMouseDown={handleMouseDown}
+                      onTouchStart={handleTouchStart}
+                      isDarkMode={isDarkMode}
+                    />
+                  ))}
+                </div>
+              )}
+
+              
+
+              {/* Success Message */}
+              {showSuccessMessage && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-2xl font-bold animate-fadeInScale">
+                  <div className="transform rotate-3 bg-gradient-to-r from-purple-500 to-indigo-500 px-6 py-4 rounded-xl shadow-xl">
+                    Puzzle Solved! 🎉
+                  </div>
+                </div>
+              )}
+
+              {/* Confetti */}
+              {showConfetti && (
+                <Confetti
+                  width={width}
+                  height={height}
+                  gravity={0.05}
+                  numberOfPieces={200}
+                  recycle={false}
+                  onConfettiComplete={() => setShowConfetti(false)}
+                />
+              )}
+              
+              {/* Add the effects button here */}
+              {(solved || hasBeenSolved) && (
+                <button
+                  onClick={() => {
+                    setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
+                    setShowEffectOverlay(true);
+                    setTimeout(() => setShowEffectOverlay(false), 300);
+                  }}
+                  className={`absolute bottom-4 right-4 px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-300 ${
+                    isDarkMode 
+                      ? 'bg-gray-800/80 text-white hover:bg-gray-700' 
+                      : 'bg-white/80 text-gray-700 hover:bg-gray-200'
+                  } backdrop-blur-sm border border-white/10 shadow-lg`}
+                >
+                  <span className="text-sm font-medium">
+                    Effect: {colorEffects[currentEffect].name}
                   </span>
-                )}
-              </div>
+                  <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    className="w-4 h-4"
+                    strokeWidth="2"
+                  >
+                    <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" />
+                  </svg>
+                </button>
+              )}
+
+              {showEffectOverlay && (
+                <div className="absolute inset-0 bg-white/10 backdrop-blur-sm transition-opacity duration-300" />
+              )}
+            </div>
+          </div>
+          
+          {/* Game Status */}
+          <div className={`rounded-xl p-4 flex justify-between items-center ${
+            isDarkMode 
+              ? 'bg-gray-800/50 text-gray-300' 
+              : 'bg-white/50 text-gray-700'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Puzzle className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} size={20} />
+              <span className="font-medium">
+                {gameStarted 
+                  ? `Moves: ${moves}` 
+                  : 'Ready to play'}
+              </span>
+            </div>
+            <div>
+              {solved && (
+                <span className="px-3 py-1 rounded-full text-sm font-semibold bg-green-500/20 text-green-500">
+                  Solved!
+                </span>
+              )}
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Minting and Sharing Section */}
-        <div className={`p-6 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-          <div className="flex flex-wrap gap-4">
-            <button
-              onClick={handleMint}
-              disabled={!image || loading}
-              className={`flex-1 py-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-semibold
-              ${(!image || loading) 
-                ? 'opacity-50 cursor-not-allowed' 
-                : 'hover:shadow-lg hover:translate-y-[-2px]'
-              } ${
-                isDarkMode 
-                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white' 
-                  : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
-              }`}
-            >
-              {loading ? (
-                <>
-                  <div className="animate-spin h-5 w-5 rounded-full border-2 border-white border-t-transparent"></div>
-                  <span>Processing...</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-lg">Mint as NFT</span>
-                </>
-              )}
-            </button>
+{/* Minting and Sharing Section */}
+<div className={`p-6 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+  <div className="flex flex-wrap gap-4">
+  <button
+  onClick={() => handleMint(nft)} // ✅ Pass the selected NFT to handleMint
+  disabled={!nft || loading}
+  className={`flex-1 py-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-semibold
+  ${(!nft || loading) 
+    ? 'opacity-50 cursor-not-allowed' 
+    : 'hover:shadow-lg hover:translate-y-[-2px]'
+    } ${
+      isDarkMode 
+        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white' 
+        : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
+    }`}
+>
+  {loading ? (
+    <>
+      <div className="animate-spin h-5 w-5 rounded-full border-2 border-white border-t-transparent"></div>
+      <span>Processing...</span>
+    </>
+  ) : (
+    <>
+      <span className="text-lg">Mint as NFT</span>
+    </>
+  )}
+</button>
 
             {/* Sharing Button with animated menu */}
             <div className="relative flex-1">
@@ -2499,26 +2698,6 @@ return (
                         name: 'X (Twitter)',
                         icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isDarkMode ? 'text-blue-400' : 'text-blue-500'}><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z" /></svg>,
                         url: `https://x.com/intent/tweet?text=${encodeURIComponent(`I solved a ${gridSize}x${gridSize} puzzle in ${moves} moves!`)}&url=${encodeURIComponent(window.location.href)}`
-                      },
-                      { 
-                        name: 'Facebook',
-                        icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isDarkMode ? 'text-blue-500' : 'text-blue-600'}><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" /></svg>,
-                        url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(`I solved a ${gridSize}x${gridSize} puzzle in ${moves} moves!`)}`
-                      },
-                      { 
-                        name: 'Discord',
-                        icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isDarkMode ? 'text-indigo-300' : 'text-indigo-500'}><circle cx="9" cy="12" r="1"></circle><circle cx="15" cy="12" r="1"></circle><path d="M7.5 7.5c3.5-1 5.5-1 9 0"></path><path d="M7 16.5c3.5 1 6.5 1 10 0"></path><path d="M15.5 17c0 1 1.5 3 2 3 1.5 0 2.833-1.667 3.5-3 .667-1.333.5-5.833-1.5-11.5-1.457-1.015-3-1.34-4.5-1.5l-1 2.5"></path><path d="M8.5 17c0 1-1.356 3-1.832 3-1.429 0-2.698-1.667-3.333-3-.635-1.333-.48-5.833 1.428-11.5C6.151 4.485 7.545 4.16 9 4l1 2.5"></path></svg>,
-                        url: `https://discord.com/channels/@me?text=${encodeURIComponent(`I solved a ${gridSize}x${gridSize} puzzle in ${moves} moves! ${window.location.href}`)}`
-                      },
-                      { 
-                        name: 'Warpcast',
-                        icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isDarkMode ? 'text-purple-300' : 'text-purple-500'}><path d="M12 19V5M5 12l7-7 7 7"></path></svg>,
-                        url: `https://warpcast.com/~/compose?text=${encodeURIComponent(`I solved a ${gridSize}x${gridSize} puzzle in ${moves} moves! ${window.location.href}`)}`
-                      },
-                      { 
-                        name: 'Farcaster',
-                        icon: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={isDarkMode ? 'text-pink-300' : 'text-pink-500'}><path d="M7 20l4-16m2 16l4-16"></path></svg>,
-                        url: `https://farcaster.xyz/share?text=${encodeURIComponent(`I solved a ${gridSize}x${gridSize} puzzle in ${moves} moves! ${window.location.href}`)}`
                       }
                     ].map((platform, index) => (
                       <a
@@ -2638,6 +2817,11 @@ return (
                     src={image?.src} 
                     alt="NFT Preview" 
                     className="w-full h-auto"
+                    style={{
+                      width: `${image.width}px`,   
+                      height: `${image.height}px`, 
+                      objectFit: 'contain'        // Ensures proper scaling
+                    }}
                   />
                 </div>
                 
@@ -2811,86 +2995,88 @@ return (
       )}
 
       {/* How to Play - Information Section */}
-      <div className={`max-w-4xl mx-auto mt-16 transition-colors duration-300 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-        <div className="text-center mb-10">
-          <h2 className={`text-3xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-            How It Works
-          </h2>
-          <p className="max-w-2xl mx-auto">
-            Create, solve and mint your own custom puzzle NFTs with this interactive dApp
-          </p>
-        </div>
+<div className={`max-w-4xl mx-auto mt-16 transition-colors duration-300 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+  <div className="text-center mb-10">
+    <h2 className={`text-4xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+      How to MINT? 
+    </h2>
+    <p className="max-w-2xl mx-auto text-lg">
+      Turn all your NFTs into Interactive Puzzles with our Puzzle Generator. 
+    </p>
+  </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
-          <div className={`p-6 rounded-xl transition-all duration-300 ${
-            isDarkMode 
-              ? 'bg-gray-800/60 hover:bg-gray-800/80 border border-gray-700' 
-              : 'bg-white/80 hover:bg-white border border-gray-200 hover:shadow-xl'
-          }`}>
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
-              isDarkMode ? 'bg-purple-900/50 text-purple-400' : 'bg-purple-100 text-purple-600'
-            }`}>
-              <Upload size={24} />
-            </div>
-            <h3 className={`text-xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-              1. Upload an Image
-            </h3>
-            <p>
-              Select any image or GIF to turn into a puzzle. Our system will automatically slice it into pieces based on your selected grid size.
-            </p>
-          </div>
+  <div className="grid md:grid-cols-3 gap-8">
+    <div className={`p-6 rounded-xl transition-all duration-300 ${
+      isDarkMode 
+        ? 'bg-gray-800/60 hover:bg-gray-800/80 border border-gray-700' 
+        : 'bg-white/80 hover:bg-white border border-gray-200 hover:shadow-xl'
+    }`}>
+      <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
+        isDarkMode ? 'bg-purple-900/50 text-purple-400' : 'bg-purple-100 text-purple-600'
+      }`}>
+        <Search size={24} />
+      </div>
+      <h3 className={`text-2xl font-bold mx-auto ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+        1. Select Your NFT 
+      </h3>
+      <p className="text-lg">
+        Choose any NFT from your collection. Each NFT can be turned into one unique puzzle - choose wisely!
+      </p>
+    </div>
 
-          <div className={`p-6 rounded-xl transition-all duration-300 ${
-            isDarkMode 
-              ? 'bg-gray-800/60 hover:bg-gray-800/80 border border-gray-700' 
-              : 'bg-white/80 hover:bg-white border border-gray-200 hover:shadow-xl'
-          }`}>
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
-              isDarkMode ? 'bg-indigo-900/50 text-indigo-400' : 'bg-indigo-100 text-indigo-600'
-            }`}>
-              <Puzzle size={24} />
-            </div>
-            <h3 className={`text-xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-              2. Solve the Puzzle
-            </h3>
-            <p>
-              Once your image is sliced into pieces, they will be shuffled automatically. Drag and drop to arrange the pieces in the correct order.
-            </p>
-          </div>
+    <div className={`p-6 rounded-xl transition-all duration-300 ${
+      isDarkMode 
+        ? 'bg-gray-800/60 hover:bg-gray-800/80 border border-gray-700' 
+        : 'bg-white/80 hover:bg-white border border-gray-200 hover:shadow-xl'
+    }`}>
+      <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
+        isDarkMode ? 'bg-indigo-900/50 text-indigo-400' : 'bg-indigo-100 text-indigo-600'
+      }`}>
+        <Puzzle size={24} />
+      </div>
+      <h3 className={`text-2xl font-bold mx-auto ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+        2. Solve the Puzzle
+      </h3>
+      <p className="text-lg">
+        Once your image is sliced into pieces, they will be shuffled automatically. Drag and drop to arrange the pieces in the correct order.
+      </p>
+    </div>
 
-          <div className={`p-6 rounded-xl transition-all duration-300 ${
-            isDarkMode 
-              ? 'bg-gray-800/60 hover:bg-gray-800/80 border border-gray-700' 
-              : 'bg-white/80 hover:bg-white border border-gray-200 hover:shadow-xl'
-          }`}>
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
-              isDarkMode ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-100 text-blue-600'
-            }`}>
-              <Gift size={24} />
-            </div>
-            <h3 className={`text-xl font-bold mb-2 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-              3. Mint as NFT
-            </h3>
-            <p>
-              After solving the puzzle, you can mint it as an NFT on the Base Sepolia testnet. Each minted NFT will store your original image and puzzle completion data.
-            </p>
-          </div>
-        </div>
+    <div className={`p-6 rounded-xl transition-all duration-300 ${
+      isDarkMode 
+        ? 'bg-gray-800/60 hover:bg-gray-800/80 border border-gray-700' 
+        : 'bg-white/80 hover:bg-white border border-gray-200 hover:shadow-xl'
+    }`}>
+      <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
+        isDarkMode ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-100 text-blue-600'
+      }`}>
+        <Gift size={24} />
+      </div>
+      <h3 className={`text-2xl font-bold mx-auto ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+        3. Solve & Mint
+      </h3>
+      <p className="text-lg">
+        Try different grid sizes (2x2 to 5x5) and test the puzzle before minting. Solve and mint your own custom puzzle NFTs.
+      </p>
+    </div>
+  </div>
 
         <div className={`mt-12 p-6 rounded-xl ${
           isDarkMode 
             ? 'bg-gray-800/60 border border-gray-700' 
             : 'bg-white/80 border border-gray-200'
         }`}>
-          <h3 className={`text-xl font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+          <div className={`max-w-4xl mx-auto mt-16 transition-colors duration-300 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+          <div className="text-center mb-10">
+          <h2 className={`text-3xl font-bold mx-auto ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
             Frequently Asked Questions
-          </h3>
+          </h2>
 
           <div className="space-y-4">
             {[
               {
                 question: "What happens when I mint a puzzle as an NFT?",
-                answer: "When you mint your puzzle as an NFT, both the original image and the puzzle configuration are stored on the blockchain. The NFT metadata includes attributes such as grid size, moves taken, and completion time."
+                answer: "When you mint your NFT as a Puzzle, both the original NFT Image and the puzzle configuration are stored on the blockchain. The NFT metadata includes attributes such as grid size, Original TokenID, Original Collection & Visual Effects.."
               },
               {
                 question: "Is there a limit to how many puzzles I can mint?",
@@ -2912,15 +3098,17 @@ return (
               <div key={index} className={`p-4 rounded-lg ${
                 isDarkMode ? 'bg-gray-900/50' : 'bg-gray-50'
               }`}>
-                <h4 className={`font-medium mb-2 ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
+                <h4 className={`font-bold mx-auto ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
                   {faq.question}
                 </h4>
-                <p className="text-sm">
+                <p className="text-base">
                   {faq.answer}
                 </p>
               </div>
             ))}
           </div>
+          </div>
+          </div>  
         </div>
       </div>
 
@@ -2950,6 +3138,8 @@ return (
         .animate-slideUp {
           animation: slideUp 0.5s ease-out;
         }
+
+
         
         .animate-fadeInDown {
           animation: fadeInDown 0.3s ease-out;

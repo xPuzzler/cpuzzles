@@ -1,6 +1,6 @@
 export const CONTRACT_ADDRESSES = {
   8453: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS_MAINNET || '', // Base Mainnet
-  84532: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS_TESTNET || '0x448CE2682db71C9192970B9b22357fa4c70e444f' // Base Sepolia - hardcoded fallback
+  84532: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS_TESTNET || '0x4725F266C295E729F29a295b8F0e560EDD9a28b2' // Base Sepolia - hardcoded fallback
 };
 
 export const SUPPORTED_CHAINS = {

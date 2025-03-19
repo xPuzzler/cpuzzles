@@ -225,3 +225,18 @@ a {
 .puzzle-container.dragging {
   cursor: grabbing; /* Change cursor to grabbing */
 }
+.btn-primary {
+  background: linear-gradient(to right, #9333ea, #06b6d4); /* Default gradient */
+  color: #fff;
+  font-weight: bold;
+  padding: 0.5rem 1.5rem;
+  border-radius: 9999px;
+  transition: transform 0.2s ease, background 0.2s ease;
+  background-size: 200% 200%; /* Smooth gradient movement */
+}
+
+.btn-primary:hover {
+  background: linear-gradient(to right, #7e22ce, #0891b2); /* Brighter gradient on hover */
+  background-position: right center; /* Animated movement */
+  transform: scale(1.05);
+}

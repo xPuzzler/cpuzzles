@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 import contractABI from '../artifacts/contracts/PuzzleNFT.sol/PuzzleNFT.json';
 import { uploadPuzzleToArweave, createPuzzleMetadata } from './arweave-uploader';
 
-const CONTRACT_ADDRESS = '0x448CE2682db71C9192970B9b22357fa4c70e444f';
+const CONTRACT_ADDRESS = '0x4725F266C295E729F29a295b8F0e560EDD9a28b2';
 /**
  * Manages interactions with the PuzzleNFT contract
  */

@@ -1,6 +1,6 @@
 import React from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { base, baseSepolia } from 'viem/chains';
+import { base, baseSepolia } from 'wagmi/chains';
 import NetworkSwitch from './NetworkSwitch'; // Make sure to create this component
 
 const WalletConnect = () => {
@@ -41,7 +41,7 @@ const WalletConnect = () => {
                 return (
                   <button 
                     onClick={openConnectModal} 
-                    className="connect-button"
+                    className="btn-primary"
                   >
                     Connect Wallet
                   </button>
@@ -61,14 +61,14 @@ const WalletConnect = () => {
                 <div className="wallet-info">
                   <button 
                     onClick={openChainModal} 
-                    className="chain-button"
+                    className="btn-primary"
                     title="Switch Network"
                   >
                     {chain.name === 'Base' ? '🚀 Base' : '🔨 Base Sepolia'}
                   </button>
                   <button 
                     onClick={openAccountModal} 
-                    className="address-button"
+                    className="btn-primary"
                     title="Account Details"
                   >
                     {account.displayName}

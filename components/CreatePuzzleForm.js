@@ -7,7 +7,7 @@ import PuzzlePreview from './PuzzlePreview';
 import PuzzleGenerator from './PuzzleGenerator'; 
 import { useChainId } from 'wagmi';
 
-const CONTRACT_ADDRESS = '0x448CE2682db71C9192970B9b22357fa4c70e444f';
+const CONTRACT_ADDRESS = '0x4725F266C295E729F29a295b8F0e560EDD9a28b2';
 
 const CreatePuzzleForm = () => {
   const chainId = useChainId();
