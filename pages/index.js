@@ -119,21 +119,23 @@ export default function Home() {
 </div>
 </header>
 
-      {/* Hero Section */}
-<section className="hero text-center my-12 relative py-20">
-  <h2 className="typing-effect mb-4 ml-4" style={{ fontFamily: 'ABC Puzzle' }}>
-    TURN YOUR NFTs INTO PUZZLES
-  </h2>
-  <p className="text-gray-300 max-w-2xl mx-auto mb-4">
-    One click and your NFTs are now puzzles.<br />
-    Fun, addictive, and ready to challenge!
-  </p>
+{/* Hero Section with improved responsiveness */}
+<section className="hero text-center my-6 md:my-12 relative py-10 md:py-20 px-4">
+  <div className="relative z-10 max-w-4xl mx-auto">
+    <h2 
+      className="typing-effect mb-2 md:mb-4 mx-auto" 
+      style={{ fontFamily: 'ABC Puzzle' }}
+    >
+      TURN YOUR NFTs INTO PUZZLES
+    </h2>
+    <p className="text-gray-300 max-w-xs sm:max-w-md md:max-w-2xl mx-auto mb-4">
+      One click and your NFTs are now puzzles.<br />
+      Fun, addictive, and ready to challenge!
+    </p>
+  </div>
 
   {/* Puzzle-like Background Pattern */}
-  <div className="absolute top-0 left-0 w-full h-full bg-puzzle-pattern bg-cover opacity-30"></div>
-  
-  {/* Add puzzle animation or content */}
-  
+  <div className="absolute top-0 left-0 w-full h-full bg-puzzle-pattern bg-cover bg-center opacity-30"></div>
 </section>
 <section 
   className={`relative rounded-2xl p-6 transition-all duration-500 overflow-hidden animate-fadeIn ${ 
@@ -277,20 +279,22 @@ export default function Home() {
 
         .hero {
     position: relative;
-    padding: 100px 0;  /* Adjust padding as needed */
+    padding: 100px 0;
+    overflow: hidden;
   }
 
   .bg-puzzle-pattern {
-    background-image: url('/puzzle-pattern.png');  /* Reference to your puzzle pattern image */
-    background-size: contain;  /* Makes sure the image covers the area */
-    background-repeat: no-repeat;  /* Makes it repeat across the section */
+    background-image: url('/puzzle-pattern.png');
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    opacity: 0.9;  /* Adjust the opacity to make it more subtle */
-    z-index: -1;  /* Keeps the background behind content */
+    opacity: 0.40;
+    z-index: 0; 
   }
 
   h2 {
@@ -331,22 +335,28 @@ export default function Home() {
   }
 
 
- .hero h2, .hero p {
-    transform: translateX(-200px);  /* Move text 20px to the left */
-}
+.hero h2, .hero p {
+    transform: none;
+  }
     .typing-effect {
     display: inline-block;
-    font-family: ABC Puzzle;
+    font-family: 'ABC Puzzle', sans-serif;
     font-weight: 400;
-    font-size: 2.5rem;
+    font-size: clamp(1.5rem, 5vw, 2.5rem);
     color: #f3f3f3;
     white-space: nowrap;
     overflow: hidden;
-    border-right: 4px solid transparent; /* Cursor-like effect */
+    border-right: 4px solid transparent;
     animation: typing 3s steps(30) 1s forwards, blink 0.75s step-end infinite;
+    background: linear-gradient(to right, #9333ea, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    max-width: 100%;
+    margin-left: 0;
+    transform: none;
   }
 
-  @keyframes typing {
+    @keyframes typing {
     from {
       width: 0;
     }
@@ -380,12 +390,7 @@ export default function Home() {
   background: linear-gradient(to right, #06b6d4), #9333ea);
   transform: scale(1.02);
 }
-  h2.typing-effect {
-  background: linear-gradient(to right, #9333ea, #06b6d4);
-  -webkit-background-clip: text;  /* Ensures the gradient applies to text */
-  -webkit-text-fill-color: transparent;
-  font-weight: bold;
-}
+
 
 /* Ensure body and html take up the full height of the page */
 html, body {
@@ -404,6 +409,16 @@ html, body {
 footer {
   margin-top: auto; /* Pushes the footer to the bottom */
 }
+
+@media (max-width: 768px) {
+    .hero h2, .hero p {
+      transform: none;
+    }
+    
+    p {
+      font-size: clamp(1rem, 4vw, 1.5rem);
+    }
+  }
   
       `}</style>
     </div>
