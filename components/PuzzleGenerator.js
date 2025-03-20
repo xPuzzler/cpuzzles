@@ -159,6 +159,23 @@ const contractABI = [
     }
   }, [image, containerRef, window.innerWidth]);
 
+  useEffect(() => {
+    if (containerRef.current) {
+      const preventDefaultTouch = (e) => {
+        if (gameStarted) {
+          e.preventDefault();
+        }
+      };
+      
+      const container = containerRef.current;
+      container.addEventListener('touchstart', preventDefaultTouch, { passive: false });
+      
+      return () => {
+        container.removeEventListener('touchstart', preventDefaultTouch);
+      };
+    }
+  }, [gameStarted, containerRef]);
+
   const handleSelectNFT = (nft) => {
     console.log("NFT Selected:", nft); // Debug log
     setSelectedNFT(nft); // Make sure this updates state
@@ -479,6 +496,7 @@ const sliceImage = useCallback(() => {
     const offsetX = touch.clientX - rect.left;
     const offsetY = touch.clientY - rect.top;
   
+    // Set dragging state
     setDraggingId(id);
     setDragOffset({ x: offsetX, y: offsetY });
   
@@ -487,16 +505,31 @@ const sliceImage = useCallback(() => {
     const y = touch.clientY - containerRect.top - offsetY;
     setDragPosition({ x, y });
   
+    // Apply initial styling
     element.style.position = 'absolute';
     element.style.zIndex = '100';
     element.style.left = `${x}px`;
     element.style.top = `${y}px`;
     element.classList.add('dragging');
+  
+    // Add event listeners to document - THIS WAS MISSING
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd);
+
+    setDebugInfo({
+      lastAction: 'touchstart',
+      touchX: touch.clientX,
+      touchY: touch.clientY,
+      gridX: Math.floor((touch.clientX - containerRect.left) / (containerDimensions.width / gridSize)),
+      gridY: Math.floor((touch.clientY - containerRect.top) / (containerDimensions.height / gridSize))
+    });
   };
   
   const handleTouchMove = (e) => {
     if (!draggingId) return;
-    e.preventDefault(); // Prevent scrolling
+    
+    // Always prevent default in touch move to stop scrolling
+    e.preventDefault();
   
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${draggingId}`);
@@ -509,16 +542,31 @@ const sliceImage = useCallback(() => {
     const x = touchX - dragOffset.x;
     const y = touchY - dragOffset.y;
   
-    // Optimize performance by using requestAnimationFrame
+    // Apply position immediately without animation frame
+    // to reduce perceived lag
+    element.style.left = `${x}px`;
+    element.style.top = `${y}px`;
+    
+    // Update state in animation frame for better performance
     requestAnimationFrame(() => {
       setDragPosition({ x, y });
-      element.style.left = `${x}px`;
-      element.style.top = `${y}px`;
+    });
+    setDebugInfo({
+      lastAction: 'touchmove',
+      touchX: touch.clientX,
+      touchY: touch.clientY,
+      gridX: Math.floor((touch.clientX - containerRect.left) / (containerDimensions.width / gridSize)),
+      gridY: Math.floor((touch.clientY - containerRect.top) / (containerDimensions.height / gridSize))
     });
   };
   
   const handleTouchEnd = (e) => {
     if (!draggingId) return;
+    
+    // Prevent default to stop any potential issues
+    if (e.cancelable) {
+      e.preventDefault();
+    }
   
     const draggedPiece = pieces.find(p => p.id === draggingId);
     if (!draggedPiece) return;
@@ -538,8 +586,9 @@ const sliceImage = useCallback(() => {
       touchY = dragPosition.y + dragOffset.y;
     }
   
-    const pieceWidth = image.width / gridSize;
-    const pieceHeight = image.height / gridSize;
+    // Important: Use containerDimensions for consistent calculations
+    const pieceWidth = containerDimensions.width / gridSize;
+    const pieceHeight = containerDimensions.height / gridSize;
     
     const gridX = Math.floor(touchX / pieceWidth);
     const gridY = Math.floor(touchY / pieceHeight);
@@ -571,9 +620,13 @@ const sliceImage = useCallback(() => {
           })
         );
         setMoves(m => m + 1);
+        
+        // Check if puzzle is solved after the move
+        setTimeout(checkIfSolved, 300);
       }
     }
   
+    // Reset the element's appearance
     element.classList.remove('dragging');
     element.style.position = '';
     element.style.zIndex = '';
@@ -582,53 +635,36 @@ const sliceImage = useCallback(() => {
     element.style.transform = '';
   
     setDraggingId(null);
+    
+    // Remove event listeners - THIS WAS MISSING
+    document.removeEventListener('touchmove', handleTouchMove);
+    document.removeEventListener('touchend', handleTouchEnd);
+    setDebugInfo({
+      lastAction: 'touchend',
+      touchX: touchX,
+      touchY: touchY,
+      gridX: gridX,
+      gridY: gridY
+    });
   };
 
-  // Assuming this is part of your puzzle logic script
+  useEffect(() => {
+    // Cleanup function to ensure no lingering event listeners
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, []); 
 
-document.addEventListener("DOMContentLoaded", function () {
-  const puzzleContainer = document.getElementById("puzzle-container");
-  let draggedElement = null;
-
-  // Mouse Events
-  puzzleContainer.addEventListener("mousedown", function (event) {
-      if (event.target.classList.contains("puzzle-piece")) {
-          draggedElement = event.target;
-      }
+  const [debugInfo, setDebugInfo] = useState({
+    lastAction: 'none',
+    touchX: 0,
+    touchY: 0,
+    gridX: 0,
+    gridY: 0
   });
-
-  puzzleContainer.addEventListener("mousemove", function (event) {
-      if (draggedElement) {
-          draggedElement.style.left = event.clientX + "px";
-          draggedElement.style.top = event.clientY + "px";
-      }
-  });
-
-  puzzleContainer.addEventListener("mouseup", function () {
-      draggedElement = null;
-  });
-
-  // Touch Events
-  puzzleContainer.addEventListener("touchstart", function (event) {
-      if (event.target.classList.contains("puzzle-piece")) {
-          draggedElement = event.target;
-      }
-  });
-
-  puzzleContainer.addEventListener("touchmove", function (event) {
-      if (draggedElement) {
-          let touch = event.touches[0];
-          draggedElement.style.left = touch.clientX + "px";
-          draggedElement.style.top = touch.clientY + "px";
-          event.preventDefault(); // Prevent scrolling while dragging
-      }
-  });
-
-  puzzleContainer.addEventListener("touchend", function () {
-      draggedElement = null;
-  });
-});
-
 
   useEffect(() => {
     if (pieces.length > 0 && gameStarted && moves > 0) {
@@ -726,7 +762,11 @@ const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
       className={`puzzle-piece ${draggingId === piece.id ? 'dragging' : ''}`}
       style={pieceStyles}
       onMouseDown={(e) => onMouseDown(e, piece.id)}
-      onTouchStart={(e) => onTouchStart(e, piece.id)}
+      onTouchStart={(e) => {
+        // This ensures touch events are properly handled
+        e.stopPropagation();
+        onTouchStart(e, piece.id);
+      }}
     />
   );
 };
@@ -744,51 +784,6 @@ useEffect(() => {
   window.addEventListener('resize', handleResize);
   return () => window.removeEventListener('resize', handleResize);
 }, [image]);
-
-// Assuming this is part of your puzzle logic script
-
-document.addEventListener("DOMContentLoaded", function () {
-  const puzzleContainer = document.getElementById("puzzle-container");
-  let draggedElement = null;
-
-  // Mouse Events
-  puzzleContainer.addEventListener("mousedown", function (event) {
-      if (event.target.classList.contains("puzzle-piece")) {
-          draggedElement = event.target;
-      }
-  });
-
-  puzzleContainer.addEventListener("mousemove", function (event) {
-      if (draggedElement) {
-          draggedElement.style.left = event.clientX + "px";
-          draggedElement.style.top = event.clientY + "px";
-      }
-  });
-
-  puzzleContainer.addEventListener("mouseup", function () {
-      draggedElement = null;
-  });
-
-  // Touch Events
-  puzzleContainer.addEventListener("touchstart", function (event) {
-      if (event.target.classList.contains("puzzle-piece")) {
-          draggedElement = event.target;
-      }
-  });
-
-  puzzleContainer.addEventListener("touchmove", function (event) {
-      if (draggedElement) {
-          let touch = event.touches[0];
-          draggedElement.style.left = touch.clientX + "px";
-          draggedElement.style.top = touch.clientY + "px";
-          event.preventDefault(); // Prevent scrolling while dragging
-      }
-  });
-
-  puzzleContainer.addEventListener("touchend", function () {
-      draggedElement = null;
-  });
-});
 
 
       const getTotalSupply = async () => {
@@ -2242,6 +2237,17 @@ document.addEventListener('click', (e) => {
   }
 };
 
+const containerStyles = {
+  touchAction: 'none',
+  WebkitTouchCallout: 'none',
+  WebkitUserSelect: 'none',
+  position: 'relative',
+  overflow: 'hidden',
+  width: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
+  height: containerDimensions.height > 0 ? `${containerDimensions.height}px` : 'auto',
+  aspectRatio: image?.width && image?.height ? `${image.width}/${image.height}` : '1 / 1', // Fallback to square
+};
+
 return (
   <section id="create" className="py-12 relative min-h-screen transition-all duration-500" 
   style={{
@@ -2249,7 +2255,7 @@ return (
       ? 'radial-gradient(circle at center, #1a1a2e 0%, #16213e 50%, #0f172a 100%)' 
       : 'radial-gradient(circle at center, #e0f2fe 0%, #bfdbfe 50%, #93c5fd 100%)'
   }}>
-  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   {/* Theme Toggle Button */}
   <button 
     onClick={() => setIsDarkMode(!isDarkMode)}
@@ -2419,63 +2425,40 @@ return (
             
             <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-            
-<div 
-  ref={containerRef}
-  key={image?.src}
-  className="puzzle-container relative mx-auto w-full"
-  style={{
-    width: '100%', // Start with full width
-    maxWidth: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
-    height: containerDimensions.height > 0 ? `${containerDimensions.height}px` : 'auto',
-    aspectRatio: image ? `${image.width}/${image.height}` : '1',
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: '12px',
-    touchAction: 'none',
-  }}
->
-  {/* Preview Image */}
-  {image && !gameStarted && (
-    <img
-      src={image.src}
-      alt="Preview"
-      className="absolute inset-0 w-full h-full object-contain animate-fadeIn"
-      style={{
-        filter: isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.2))' : 'none',
-        objectFit: 'contain', // Ensure the image fits within the container without distortion
-        objectPosition: 'center', // Center the image inside the container
-      }}
-    />
-  )}
-
-              
-
-              {/* Puzzle Pieces */}
-              {gameStarted && (
-                <div
-                  className="puzzle-pieces-container"
-                  style={{
-                    position: 'relative',
-                    width: '100%',
-                    height: '100%',
-                    filter: (solved || hasBeenSolved) 
-                      ? `${colorEffects[currentEffect].filter} ${isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.3))' : ''}` 
-                      : isDarkMode ? 'drop-shadow(0 0 5px rgba(255,255,255,0.1))' : 'none',
-                    transition: 'filter 0.5s ease'
-                  }}
-                >
-                  {pieces.map(piece => (
-                    <PuzzlePiece
-                      key={piece.id}
-                      piece={piece}
-                      onMouseDown={handleMouseDown}
-                      onTouchStart={handleTouchStart}
-                      isDarkMode={isDarkMode}
-                    />
-                  ))}
-                </div>
-              )}
+     
+  <div 
+    ref={containerRef}
+    key={image?.src}
+    className="puzzle-container relative mx-auto w-full"
+    style={containerStyles}
+  >
+    {/* Preview Image */}
+    {image && !gameStarted && (
+      <img
+        src={image.src}
+        alt="Preview"
+        className="absolute inset-0 w-full h-full object-contain animate-fadeIn"
+        style={{
+          filter: isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.2))' : 'none',
+          objectFit: 'contain',
+          objectPosition: 'center',
+        }}
+      />
+    )}
+{/* Puzzle Pieces */}
+    {gameStarted && (
+      <div className="puzzle-pieces-container" style={{ position: 'relative', width: '100%', height: '100%' }}>
+        {pieces.map(piece => (
+          <PuzzlePiece
+            key={piece.id}
+            piece={piece}
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleTouchStart}
+            isDarkMode={isDarkMode}
+          />
+        ))}
+      </div>
+    )}
 
               
 
