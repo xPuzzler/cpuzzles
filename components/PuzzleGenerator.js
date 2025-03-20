@@ -101,6 +101,10 @@ const contractABI = [
     { name: 'Nebula', filter: 'hue-rotate(230deg) saturate(250%) brightness(90%) contrast(130%) blur(0.2px)' }
     ];
 
+    const cycleEffects = () => {
+      setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
+    };
+
   useEffect(() => {
     const fetchMints = async () => {
       try {
@@ -2301,7 +2305,7 @@ return (
     {[...Array(20)].map((_, i) => (
       <div 
         key={i}
-        className="absolute rounded-full opacity-20"
+        className="absolute rounded-full opacity-70"
         style={{
           width: Math.random() * 100 + 50 + 'px',
           height: Math.random() * 100 + 50 + 'px',
@@ -2316,6 +2320,7 @@ return (
       />
     ))}
   </div>
+  
 
   <div className="relative mx-auto px-4 sm:px-6 md:px-8 lg:px-12 xl:px-20 relative z-10">
     <div className="text-center mb-12 animate-fadeIn">
@@ -2395,6 +2400,20 @@ return (
                 <Shuffle size={18} />
                 Shuffle
               </button>
+             {/* Button to Cycle Effects */}
+      <button
+        onClick={cycleEffects}
+        className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
+          !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
+        } ${
+          isDarkMode 
+            ? 'bg-purple-600/80 text-white hover:bg-purple-500' 
+            : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+        }`}
+        disabled={!image}
+      >
+        Effect: {colorEffects[currentEffect].name}
+      </button>
             </div>
           </div>
 
@@ -2426,12 +2445,12 @@ return (
             <canvas ref={canvasRef} style={{ display: 'none' }} />
 
      
-  <div 
-    ref={containerRef}
-    key={image?.src}
-    className="puzzle-container relative mx-auto w-full"
-    style={containerStyles}
-  >
+            <div 
+  ref={containerRef}
+  key={image?.src}
+  className="puzzle-container relative mx-auto w-full overflow-visible"
+  style={containerStyles}
+>
     {/* Preview Image */}
     {image && !gameStarted && (
       <img
@@ -2441,6 +2460,7 @@ return (
         style={{
           filter: isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.2))' : 'none',
           objectFit: 'contain',
+          filter: colorEffects[currentEffect].filter,
           objectPosition: 'center',
         }}
       />
@@ -2458,10 +2478,7 @@ return (
           />
         ))}
       </div>
-    )}
-
-              
-
+    )}    
               {/* Success Message */}
               {showSuccessMessage && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-2xl font-bold animate-fadeInScale">
@@ -3024,6 +3041,11 @@ return (
           </div>  
         </div>
       </div>
+
+      {/* Footer */}
+        <footer className="mt-12">
+          <p className="text-gray-400 text-center">Puzzle NFT Platform &copy; {new Date().getFullYear()}</p>
+        </footer>
 
       {/* CSS for Animations */}
       <style jsx>{`

@@ -209,11 +209,9 @@ export default function Home() {
           <div className="create-puzzle">
             {isConnected ? (
               <div className="puzzle-container relative group">
-                <div className="relative bg-black/50 backdrop-blur-sm border border-white/10 rounded-xl p-6">
                   {/* Pass selectedNFT explicitly */}
                   <PuzzleGenerator nft={selectedNFT} />
                 </div>
-              </div>
             ) : (
               <div className="connect-prompt text-center p-8 bg-black/50 backdrop-blur-sm border border-white/10 rounded-xl">
                 <p className="text-gray-400 text-lg">Please connect your wallet to create puzzle NFTs</p>
@@ -223,10 +221,7 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Footer */}
-  <footer className="mt-12">
-    <p className="text-gray-400 text-center">Puzzle NFT Platform &copy; {new Date().getFullYear()}</p>
-  </footer>
+      
       
       <style jsx global>{`
         body {
