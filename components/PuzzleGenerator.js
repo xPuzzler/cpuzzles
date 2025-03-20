@@ -105,6 +105,21 @@ const contractABI = [
       setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
     };
 
+    // At the top of your component
+useEffect(() => {
+  // Detect mobile browsers
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  console.log('Mobile detected:', isMobile);
+  
+  // Prevent zooming
+  const preventZoom = (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  };
+  
+  document.addEventListener('touchstart', preventZoom, { passive: false });
+  return () => document.removeEventListener('touchstart', preventZoom);
+}, []);
+
   useEffect(() => {
     const fetchMints = async () => {
       try {
@@ -488,84 +503,66 @@ const sliceImage = useCallback(() => {
   };
   
   const handleTouchStart = (e, id) => {
+    e.preventDefault();
     if (!gameStarted) return;
-  
-    e.preventDefault(); // Prevent unintended scrolling or zooming
   
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${id}`);
     if (!element) return;
   
-    const rect = element.getBoundingClientRect();
-    const offsetX = touch.clientX - rect.left;
-    const offsetY = touch.clientY - rect.top;
-  
-    // Set dragging state
-    setDraggingId(id);
-    setDragOffset({ x: offsetX, y: offsetY });
+    // Mobile-specific visual feedback
+    element.style.transform = "scale(1.05)";
+    element.style.transition = "transform 0.1s";
   
     const containerRect = containerRef.current.getBoundingClientRect();
-    const x = touch.clientX - containerRect.left - offsetX;
-    const y = touch.clientY - containerRect.top - offsetY;
-    setDragPosition({ x, y });
+    const offsetX = touch.clientX - (element.offsetLeft + containerRect.left);
+    const offsetY = touch.clientY - (element.offsetTop + containerRect.top);
   
-    // Apply initial styling
-    element.style.position = 'absolute';
-    element.style.zIndex = '100';
-    element.style.left = `${x}px`;
-    element.style.top = `${y}px`;
-    element.classList.add('dragging');
-  
-    // Add event listeners to document - THIS WAS MISSING
-    document.addEventListener('touchmove', handleTouchMove, { passive: false });
-    document.addEventListener('touchend', handleTouchEnd);
-
-    setDebugInfo({
-      lastAction: 'touchstart',
-      touchX: touch.clientX,
-      touchY: touch.clientY,
-      gridX: Math.floor((touch.clientX - containerRect.left) / (containerDimensions.width / gridSize)),
-      gridY: Math.floor((touch.clientY - containerRect.top) / (containerDimensions.height / gridSize))
+    setDraggingId(id);
+    setDragOffset({ x: offsetX, y: offsetY });
+    setDragPosition({
+      x: touch.clientX - containerRect.left - offsetX,
+      y: touch.clientY - containerRect.top - offsetY
     });
+  
+    // Mobile browser touch-action override
+    document.body.style.touchAction = 'none';
   };
   
   const handleTouchMove = (e) => {
-    if (!draggingId) return;
-    
-    // Always prevent default in touch move to stop scrolling
     e.preventDefault();
+    if (!draggingId) return;
   
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${draggingId}`);
-    if (!element) return;
-  
     const containerRect = containerRef.current.getBoundingClientRect();
-    const touchX = touch.clientX - containerRect.left;
-    const touchY = touch.clientY - containerRect.top;
   
-    const x = touchX - dragOffset.x;
-    const y = touchY - dragOffset.y;
+    // Boundary-checked calculations
+    const maxX = containerRect.width - element.offsetWidth;
+    const maxY = containerRect.height - element.offsetHeight;
+    
+    let x = touch.clientX - containerRect.left - dragOffset.x;
+    let y = touch.clientY - containerRect.top - dragOffset.y;
   
-    // Apply position immediately without animation frame
-    // to reduce perceived lag
+    x = Math.max(0, Math.min(x, maxX));
+    y = Math.max(0, Math.min(y, maxY));
+  
     element.style.left = `${x}px`;
     element.style.top = `${y}px`;
-    
-    // Update state in animation frame for better performance
-    requestAnimationFrame(() => {
-      setDragPosition({ x, y });
-    });
-    setDebugInfo({
-      lastAction: 'touchmove',
-      touchX: touch.clientX,
-      touchY: touch.clientY,
-      gridX: Math.floor((touch.clientX - containerRect.left) / (containerDimensions.width / gridSize)),
-      gridY: Math.floor((touch.clientY - containerRect.top) / (containerDimensions.height / gridSize))
-    });
+    element.style.transition = 'none'; // Disable smooth transitions during drag
   };
   
   const handleTouchEnd = (e) => {
     if (!draggingId) return;
+
+    const element = document.getElementById(`piece-${draggingId}`);
+    if (element) {
+      element.style.transform = "";
+      element.style.transition = "";
+    }
+  
+    // Restore touch-action
+    document.body.style.touchAction = '';
     
     // Prevent default to stop any potential issues
     if (e.cancelable) {
@@ -574,9 +571,6 @@ const sliceImage = useCallback(() => {
   
     const draggedPiece = pieces.find(p => p.id === draggingId);
     if (!draggedPiece) return;
-  
-    const element = document.getElementById(`piece-${draggingId}`);
-    if (!element) return;
   
     const containerRect = containerRef.current.getBoundingClientRect();
     let touchX, touchY;
@@ -755,6 +749,8 @@ const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
     border: '1px solid rgba(255, 255, 255, 0.1)',
     boxShadow: draggingId === piece.id ? '0 8px 16px rgba(0,0,0,0.3)' : 'none',
     touchAction: 'none',
+    WebkitTapHighlightColor: 'transparent',
+    WebkitTouchCallout: 'none',
     userSelect: 'none',
     WebkitUserSelect: 'none',
     zIndex: draggingId === piece.id ? '1000' : '1',
@@ -842,71 +838,90 @@ useEffect(() => {
           setError(null);
           setMintError(null);
       
-          if (!nft) {
-            throw new Error("No NFT selected!");
+          // Mobile detection and deeplinking
+          const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          if (isMobile && !window.ethereum?.isConnected()) {
+            const dappUrl = encodeURIComponent(window.location.href);
+            window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+            return;
           }
       
-          console.log("🧩 Minting NFT with:", nft);
+          if (!nft) throw new Error("No NFT selected!");
       
+          console.log("🧩 Minting NFT with:", nft);
           const { tokenId, collectionName, contractAddress, image } = nft;
       
           if (!tokenId || isNaN(tokenId)) {
             throw new Error("Invalid NFT token ID.");
           }
       
-          // ✅ Ensure `getTotalSupply()` is valid
-          let nextTokenId;
-          try {
-            const currentSupply = await getTotalSupply();
-            console.log("📌 Current Supply:", currentSupply);
-      
-            if (currentSupply === null || isNaN(currentSupply) || currentSupply < 0) {
-              throw new Error("getTotalSupply() returned invalid data");
-            }
-      
-            nextTokenId = currentSupply + 1; // ✅ Ensure next ID starts from 1+
-          } catch (error) {
-            console.error("❌ Error getting total supply:", error);
-            throw new Error("Unable to retrieve total supply. Please try again.");
-          }
-      
-          console.log("✅ Next Token ID:", nextTokenId);
-      
-          if (nextTokenId === 0 || isNaN(nextTokenId)) {
-            throw new Error("Invalid next token ID. Please try again.");
-          }
-      
-          // Upload image and metadata
-          const ipfsImageUrl = image;
-          const arweaveId = await uploadPuzzleHTML(ipfsImageUrl, gridSize, collectionName);
-      
-          const metadata = createPuzzleMetadata(
-            ipfsImageUrl,
-            gridSize,
-            arweaveId,
-            nextTokenId,
-            tokenId,
-            collectionName,
-            moves,
-            contractAddress
+          // Transaction timeout setup (45 seconds)
+          const transactionTimeout = 45000;
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Transaction timeout. Please try again.')), transactionTimeout)
           );
       
-          console.log("📝 Metadata Created:", metadata);
+          let result;
+          try {
+            result = await Promise.race([
+              (async () => {
+                const currentSupply = await getTotalSupply();
+                console.log("📌 Current Supply:", currentSupply);
       
-          const metadataUrl = await uploadMetadataToIPFS(metadata, nextTokenId);
+                if (currentSupply === null || isNaN(currentSupply) || currentSupply < 0) {
+                  throw new Error("Invalid total supply");
+                }
       
-          const result = await mintPuzzleNFT(metadataUrl, gridSize, chainId, address, tokenId);
+                const nextTokenId = currentSupply + 1;
+                console.log("✅ Next Token ID:", nextTokenId);
+      
+                if (nextTokenId === 0 || isNaN(nextTokenId)) {
+                  throw new Error("Invalid next token ID");
+                }
+      
+                const ipfsImageUrl = image;
+                const arweaveId = await uploadPuzzleHTML(ipfsImageUrl, gridSize, collectionName);
+      
+                const metadata = createPuzzleMetadata(
+                  ipfsImageUrl,
+                  gridSize,
+                  arweaveId,
+                  nextTokenId,
+                  tokenId,
+                  collectionName,
+                  moves,
+                  contractAddress
+                );
+      
+                console.log("📝 Metadata Created:", metadata);
+                const metadataUrl = await uploadMetadataToIPFS(metadata, nextTokenId);
+      
+                return await mintPuzzleNFT(
+                  metadataUrl, 
+                  gridSize, 
+                  chainId, 
+                  address, 
+                  tokenId
+                );
+              })(),
+              timeoutPromise
+            ]);
+          } catch (error) {
+            if (error.code === 4001) throw new Error("User rejected transaction");
+            if (error.message.includes('timeout')) throw new Error("Transaction timeout");
+            throw error;
+          }
       
           if (result.success) {
             setMintStatus({
               status: "success",
               message: "Your Web3 Puzzles NFT has been minted!",
-              tokenId: nextTokenId,
+              tokenId: result.tokenId,
               hash: result.hash,
             });
-      
-            console.log("✅ Mint successful:", nextTokenId);
+            console.log("✅ Mint successful:", result.tokenId);
           }
+      
         } catch (error) {
           console.error("🚨 Mint error:", error);
           setMintStatus({
@@ -2244,8 +2259,11 @@ document.addEventListener('click', (e) => {
 const containerStyles = {
   touchAction: 'none',
   WebkitTouchCallout: 'none',
+  WebkitOverflowScrolling: 'touch',
+  '-webkit-user-select': 'none',
   WebkitUserSelect: 'none',
   position: 'relative',
+  userSelect: 'none',
   overflow: 'hidden',
   width: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
   height: containerDimensions.height > 0 ? `${containerDimensions.height}px` : 'auto',
