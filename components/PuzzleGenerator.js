@@ -513,6 +513,7 @@ const sliceImage = useCallback(() => {
   
     // Get container dimensions fresh each touch
     const container = containerRef.current;
+    const containerRect = container.getBoundingClientRect();
     
     // Calculate positions relative to container
     const offsetX = touch.clientX - containerRect.left - element.offsetLeft;
