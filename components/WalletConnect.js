@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { base, baseSepolia } from 'viem/chains';
-import NetworkSwitch from './NetworkSwitch'; // Make sure to create this component
+import NetworkSwitch from './NetworkSwitch';
 
-const WalletConnect = () => {
+const WalletConnect = ({ onConnected }) => {
   // Add detection for mobile devices
   const [isMobile, setIsMobile] = useState(false);
   
   useEffect(() => {
     // Detect if the user is on a mobile device
     const checkMobile = () => {
-      setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+      setIsMobile(/iPhone|iPad|iPod/i.test(navigator.userAgent));
     };
     
     checkMobile();
@@ -20,6 +20,25 @@ const WalletConnect = () => {
       window.removeEventListener('resize', checkMobile);
     };
   }, []);
+
+  // Helper function for mobile wallet connection
+  const handleMobileConnect = () => {
+    try {
+      // Get the current URL for deep linking back to the dApp
+      const dappUrl = encodeURIComponent(window.location.href);
+      
+      // Use universal links for iOS and deep links for Android
+      if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        // Use universal links for iOS
+        window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+      } else {
+        // Use intent URL for Android (more reliable than metamask://)
+        window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
+      }
+    } catch (error) {
+      console.error("Error connecting mobile wallet:", error);
+    }
+  };
 
   return (
     <ConnectButton.Custom>
@@ -38,6 +57,13 @@ const WalletConnect = () => {
           account &&
           chain &&
           (!authenticationStatus || authenticationStatus === 'authenticated');
+
+        // Notify parent component when connection status changes
+        useEffect(() => {
+          if (connected && onConnected) {
+            onConnected(true, account, chain);
+          }
+        }, [connected, account, chain]);
 
         // Check if connected to supported networks
         const isSupportedNetwork = chain?.id === base.id || chain?.id === baseSepolia.id;
@@ -99,25 +125,6 @@ const WalletConnect = () => {
       }}
     </ConnectButton.Custom>
   );
-  
-  // Helper function for mobile wallet connection
-  function handleMobileConnect() {
-    try {
-      // Get the current URL for deep linking back to the dApp
-      const dappUrl = encodeURIComponent(window.location.href);
-      
-      // Use universal links for iOS and deep links for Android
-      if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-        // Use universal links for iOS
-        window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
-      } else {
-        // Use intent URL for Android (more reliable than metamask://)
-        window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
-      }
-    } catch (error) {
-      console.error("Error connecting mobile wallet:", error);
-    }
-  }
 };
 
 export default WalletConnect;

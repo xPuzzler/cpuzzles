@@ -15,6 +15,7 @@ import { mintPuzzleNFT, getRemainingMints, getMintPrice, MAX_PER_WALLET } from '
 import { ethers } from 'ethers';
 import contractABI from '../utils/contractABI.json';
 import { PUZZLE_NFT_ABI } from '../utils/mint';
+import MintButtonWithFallback from './MintButtonWithFallback';
 
 
 const PuzzleGenerator = ({ nft }) => {
@@ -83,82 +84,8 @@ const [draggingPieceIndex, setDraggingPieceIndex] = useState(null);
 const [draggingPiece, setDraggingPiece] = useState(null);
 const dragPositionRef = useRef({ x: 0, y: 0 });
 const dragOffsetRef = useRef({ x: 0, y: 0 });
-// Add this component near your Mint button
-const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode }) => {
-  const [isMobile, setIsMobile] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
-  
-  useEffect(() => {
-    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
-  }, []);
-  
-  return (
-    <div className="flex-1 flex flex-col">
-      <button
-        onClick={handleMint}
-        disabled={!image || loading}
-        className={`w-full py-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-semibold
-        ${(!image || loading) 
-          ? 'opacity-50 cursor-not-allowed' 
-          : 'hover:shadow-lg hover:translate-y-[-2px]'
-        } ${
-          isDarkMode 
-            ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white' 
-            : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
-        }`}
-      >
-        {loading ? (
-          <>
-            <div className="animate-spin h-5 w-5 rounded-full border-2 border-white border-t-transparent"></div>
-            <span>Processing...</span>
-          </>
-        ) : (
-          <>
-            <span className="text-lg">Mint as NFT</span>
-          </>
-        )}
-      </button>
-      
-      {/* Help button for mobile users */}
-      {isMobile && (
-        <div className="mt-2">
-          <button 
-            onClick={() => setShowHelp(!showHelp)}
-            className="text-sm text-gray-500 underline flex items-center justify-center mt-1"
-          >
-            Having issues on mobile? Click here
-          </button>
-          
-          {showHelp && (
-            <div className="mt-2 p-4 bg-gray-100 rounded-lg text-sm">
-              <h4 className="font-bold">Mobile Wallet Tips:</h4>
-              <ul className="list-disc pl-5 mt-1">
-                <li>Make sure your wallet app (MetaMask, etc.) is installed</li>
-                <li>If the app doesn't open automatically, try manually opening it first</li>
-                <li>Connect your wallet before minting</li>
-                <li>Switch to the Base network in your wallet settings</li>
-                <li>If all else fails, try minting on desktop</li>
-              </ul>
-              <button 
-                onClick={() => {
-                  // Alternative direct MetaMask app open for mobile
-                  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-                    window.location.href = 'https://metamask.app.link/';
-                  } else {
-                    window.location.href = 'intent://metamask.app/#Intent;scheme=metamask;package=io.metamask;end;';
-                  }
-                }}
-                className="mt-3 w-full py-2 bg-blue-500 text-white rounded-lg"
-              >
-                Open Wallet App Directly
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
+const [walletConnected, setWalletConnected] = useState(false);
+
 
 
   const colorEffects = [
@@ -1056,6 +983,43 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode }) => {
     setGameStarted(true);
   };
 
+  useEffect(() => {
+    // Check for dark mode preference
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setIsDarkMode(prefersDark);
+    
+    // Check if wallet is already connected
+    const checkWalletConnection = async () => {
+      if (window.ethereum) {
+        try {
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+          if (accounts.length > 0) {
+            setWalletConnected(true);
+            setAddress(accounts[0]);
+            
+            const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+            setChainId(parseInt(chainIdHex, 16));
+          }
+        } catch (error) {
+          console.error("Error checking wallet connection:", error);
+        }
+      }
+    };
+    
+    checkWalletConnection();
+  }, []);
+
+  // Handle wallet connection changes
+  const handleWalletConnected = (connected, account, chain) => {
+    setWalletConnected(connected);
+    if (account) {
+      setAddress(account.address);
+    }
+    if (chain) {
+      setChainId(chain.id);
+    }
+  };
+
       const getTotalSupply = async () => {
         try {
           if (!window.ethereum) throw new Error('No Web3 Provider found');
@@ -1108,33 +1072,35 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode }) => {
           setError(null);
           setMintError(null);
       
-          // Improved mobile detection and wallet handling
-          const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-          
           // Check if wallet is connected
-          const isWalletConnected = window.ethereum?.isConnected && window.ethereum.isConnected();
-          
-          if (isMobile && !isWalletConnected) {
-            // Use different approaches for iOS vs Android
-            const dappUrl = encodeURIComponent(window.location.href);
+          if (!window.ethereum || !window.ethereum.selectedAddress) {
+            // Improved mobile detection and wallet handling
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             
-            if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-              // Universal link for iOS
-              window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
-            } else {
-              // Intent URL for Android (more reliable)
-              window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
-            }
-            
-            // Set a timeout to check if wallet connection was successful
-            setTimeout(() => {
-              if (!window.ethereum?.isConnected()) {
-                setLoading(false);
-                setError("Please connect your wallet to mint. If your wallet app didn't open, you may need to install it first.");
+            if (isMobile) {
+              // Use different approaches for iOS vs Android
+              const dappUrl = encodeURIComponent(window.location.href);
+              
+              if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                // Universal link for iOS
+                window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+              } else {
+                // Intent URL for Android (more reliable)
+                window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
               }
-            }, 3000);
-            
-            return;
+              
+              // Set a timeout to check if wallet connection was successful
+              setTimeout(() => {
+                if (!window.ethereum?.selectedAddress) {
+                  setLoading(false);
+                  setError("Please connect your wallet to mint. If your wallet app didn't open, you may need to install it first.");
+                }
+              }, 3000);
+              
+              return;
+            } else {
+              throw new Error("Please connect your wallet to mint.");
+            }
           }
       
           if (!nft) throw new Error("No NFT selected!");
@@ -1156,6 +1122,18 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode }) => {
           try {
             result = await Promise.race([
               (async () => {
+                // Ensure we have the address from the connected wallet
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                const walletAddress = accounts[0];
+                
+                if (!walletAddress) {
+                  throw new Error("Failed to get wallet address. Please reconnect your wallet.");
+                }
+                
+                // Get current chain ID
+                const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+                const chainId = parseInt(chainIdHex, 16);
+                
                 const currentSupply = await getTotalSupply();
                 console.log("📌 Current Supply:", currentSupply);
       
@@ -1187,23 +1165,36 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode }) => {
                 console.log("📝 Metadata Created:", metadata);
                 const metadataUrl = await uploadMetadataToIPFS(metadata, nextTokenId);
       
+                // Use the actual address from the wallet instead of any stored address
                 return await mintPuzzleNFT(
                   metadataUrl, 
                   gridSize, 
                   chainId, 
-                  address, 
+                  walletAddress, 
                   tokenId
                 );
               })(),
               timeoutPromise
             ]);
           } catch (error) {
-            // Enhanced error handling for mobile
+            // Enhanced error handling for mobile and common wallet errors
             if (error.code === 4001) throw new Error("User rejected transaction");
             if (error.message.includes('timeout')) throw new Error("Transaction timeout");
+            
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             if (isMobile && (error.message.includes('disconnected') || error.message.includes('connect'))) {
               throw new Error("Wallet connection issue. Please try reopening your wallet app and try again.");
             }
+            
+            // Check for common RPC errors
+            if (error.message.includes('insufficient funds')) {
+              throw new Error("Insufficient funds in your wallet to complete this transaction");
+            }
+            
+            if (error.message.includes('gas')) {
+              throw new Error("Gas estimation failed. The transaction might fail or the contract might have an error.");
+            }
+            
             throw error;
           }
       
@@ -1215,6 +1206,8 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode }) => {
               hash: result.hash,
             });
             console.log("✅ Mint successful:", result.tokenId);
+          } else {
+            throw new Error(result.message || "Minting failed. Please try again.");
           }
       
         } catch (error) {
