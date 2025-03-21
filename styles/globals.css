@@ -60,6 +60,20 @@ a {
   flex-direction: column;
 }
 
+h2, h3, h4 {
+  font-size: 1.5rem; /* Default for mobile */
+}
+
+@media (min-width: 640px) { /* Tablet */
+  h2 { font-size: 2rem; }
+  h3 { font-size: 2.5rem; }
+}
+
+@media (min-width: 1024px) { /* Desktop */
+  h2 { font-size: 3rem; }
+  h3 { font-size: 3.5rem; }
+}
+
 /* Responsive Styles */
 @media (max-width: 600px) {
   h1 {

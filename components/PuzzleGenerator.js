@@ -504,148 +504,153 @@ const sliceImage = useCallback(() => {
   
   const handleTouchStart = (e, id) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent event bubbling to parent elements
     if (!gameStarted) return;
   
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${id}`);
     if (!element) return;
   
-    // Mobile-specific visual feedback
-    element.style.transform = "scale(1.05)";
-    element.style.transition = "transform 0.1s";
+    // Get container dimensions fresh each touch
+    const container = containerRef.current;
+    
+    // Calculate positions relative to container
+    const offsetX = touch.clientX - containerRect.left - element.offsetLeft;
+    const offsetY = touch.clientY - containerRect.top - element.offsetTop;
   
-    const containerRect = containerRef.current.getBoundingClientRect();
-    const offsetX = touch.clientX - (element.offsetLeft + containerRect.left);
-    const offsetY = touch.clientY - (element.offsetTop + containerRect.top);
+    // Visual feedback
+    element.style.transform = "scale(1.02)";
+    element.style.transition = "transform 0.1s";
+    element.style.zIndex = "1000";
   
     setDraggingId(id);
     setDragOffset({ x: offsetX, y: offsetY });
-    setDragPosition({
-      x: touch.clientX - containerRect.left - offsetX,
-      y: touch.clientY - containerRect.top - offsetY
-    });
-  
-    // Mobile browser touch-action override
-    document.body.style.touchAction = 'none';
   };
   
   const handleTouchMove = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     if (!draggingId) return;
   
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${draggingId}`);
-    const containerRect = containerRef.current.getBoundingClientRect();
+    const container = containerRef.current;
+    const containerRect = container.getBoundingClientRect();
   
-    // Boundary-checked calculations
-    const maxX = containerRect.width - element.offsetWidth;
-    const maxY = containerRect.height - element.offsetHeight;
+    // Calculate boundaries
+    const pieceWidth = containerRect.width / gridSize;
+    const pieceHeight = containerRect.height / gridSize;
     
-    let x = touch.clientX - containerRect.left - dragOffset.x;
-    let y = touch.clientY - containerRect.top - dragOffset.y;
+    // Calculate new position with constraints
+    let newX = touch.clientX - containerRect.left - dragOffset.x;
+    let newY = touch.clientY - containerRect.top - dragOffset.y;
   
-    x = Math.max(0, Math.min(x, maxX));
-    y = Math.max(0, Math.min(y, maxY));
+    // Keep pieces within container bounds
+    newX = Math.max(0, Math.min(newX, containerRect.width - pieceWidth));
+    newY = Math.max(0, Math.min(newY, containerRect.height - pieceHeight));
   
-    element.style.left = `${x}px`;
-    element.style.top = `${y}px`;
-    element.style.transition = 'none'; // Disable smooth transitions during drag
+    element.style.left = `${newX}px`;
+    element.style.top = `${newY}px`;
   };
   
   const handleTouchEnd = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!draggingId) return;
-
-    const element = document.getElementById(`piece-${draggingId}`);
-    if (element) {
-      element.style.transform = "";
-      element.style.transition = "";
-    }
-  
-    // Restore touch-action
-    document.body.style.touchAction = '';
-    
-    // Prevent default to stop any potential issues
-    if (e.cancelable) {
-      e.preventDefault();
-    }
   
     const draggedPiece = pieces.find(p => p.id === draggingId);
-    if (!draggedPiece) return;
+    const element = document.getElementById(`piece-${draggingId}`);
+    const container = containerRef.current;
   
-    const containerRect = containerRef.current.getBoundingClientRect();
-    let touchX, touchY;
+    // Cleanup event listeners first
+    document.removeEventListener('touchmove', handleTouchMove);
+    document.removeEventListener('touchend', handleTouchEnd);
   
-    if (e.changedTouches && e.changedTouches.length > 0) {
-      const touch = e.changedTouches[0];
-      touchX = touch.clientX - containerRect.left;
-      touchY = touch.clientY - containerRect.top;
-    } else {
-      touchX = dragPosition.x + dragOffset.x;
-      touchY = dragPosition.y + dragOffset.y;
+    if (element) {
+      // Reset visual styles
+      element.style.transform = '';
+      element.style.transition = 'all 0.3s ease';
+      element.style.zIndex = '1';
+      element.classList.remove('dragging');
+      
+      // Reset position properties
+      element.style.position = '';
+      element.style.left = '';
+      element.style.top = '';
     }
   
-    // Important: Use containerDimensions for consistent calculations
-    const pieceWidth = containerDimensions.width / gridSize;
-    const pieceHeight = containerDimensions.height / gridSize;
-    
-    const gridX = Math.floor(touchX / pieceWidth);
-    const gridY = Math.floor(touchY / pieceHeight);
+    // Get fresh container measurements
+    const containerRect = container.getBoundingClientRect();
+    const pieceWidth = containerRect.width / gridSize;
+    const pieceHeight = containerRect.height / gridSize;
   
-    if (gridX >= 0 && gridX < gridSize && gridY >= 0 && gridY < gridSize) {
-      const targetPiece = pieces.find(p => p.currentX === gridX && p.currentY === gridY);
+    // Get final touch position
+    const touch = e.changedTouches[0];
+    const touchX = touch.clientX - containerRect.left;
+    const touchY = touch.clientY - containerRect.top;
   
-      if (targetPiece && targetPiece.id !== draggingId) {
-        setPieces(prevPieces =>
-          prevPieces.map(piece => {
-            if (piece.id === draggingId) {
-              return {
-                ...piece,
-                currentX: gridX,
-                currentY: gridY,
-                xPos: gridX * pieceWidth,
-                yPos: gridY * pieceHeight
-              };
-            } else if (piece.id === targetPiece.id) {
-              return {
-                ...piece,
-                currentX: draggedPiece.currentX,
-                currentY: draggedPiece.currentY,
-                xPos: draggedPiece.currentX * pieceWidth,
-                yPos: draggedPiece.currentY * pieceHeight
-              };
-            }
-            return piece;
-          })
-        );
+    // Calculate grid position with boundary checks
+    const gridX = Math.max(0, Math.min(Math.floor(touchX / pieceWidth), gridSize - 1));
+    const gridY = Math.max(0, Math.min(Math.floor(touchY / pieceHeight), gridSize - 1));
+  
+    // Perform piece swap if valid
+    if (draggedPiece) {
+      const targetPiece = pieces.find(p => 
+        p.currentX === gridX && 
+        p.currentY === gridY &&
+        p.id !== draggingId
+      );
+  
+      if (targetPiece) {
+        setPieces(prevPieces => prevPieces.map(piece => {
+          if (piece.id === draggingId) {
+            return {
+              ...piece,
+              currentX: gridX,
+              currentY: gridY,
+              xPos: gridX * pieceWidth,
+              yPos: gridY * pieceHeight
+            };
+          }
+          if (piece.id === targetPiece.id) {
+            return {
+              ...piece,
+              currentX: draggedPiece.currentX,
+              currentY: draggedPiece.currentY,
+              xPos: draggedPiece.currentX * pieceWidth,
+              yPos: draggedPiece.currentY * pieceHeight
+            };
+          }
+          return piece;
+        }));
+  
         setMoves(m => m + 1);
         
-        // Check if puzzle is solved after the move
-        setTimeout(checkIfSolved, 300);
+        // Delay solve check for animation completion
+        setTimeout(() => {
+          const isSolved = pieces.every(p => 
+            p.currentX === p.correctX && 
+            p.currentY === p.correctY
+          );
+          setSolved(isSolved);
+          if (isSolved) {
+            setShowConfetti(true);
+            setTimeout(() => setShowConfetti(false), 5000);
+          }
+        }, 300);
       }
     }
   
-    // Reset the element's appearance
-    element.classList.remove('dragging');
-    element.style.position = '';
-    element.style.zIndex = '';
-    element.style.left = '';
-    element.style.top = '';
-    element.style.transform = '';
-  
+    // Final cleanup
     setDraggingId(null);
-    
-    // Remove event listeners - THIS WAS MISSING
-    document.removeEventListener('touchmove', handleTouchMove);
-    document.removeEventListener('touchend', handleTouchEnd);
-    setDebugInfo({
-      lastAction: 'touchend',
-      touchX: touchX,
-      touchY: touchY,
-      gridX: gridX,
-      gridY: gridY
-    });
+    setDragOffset({ x: 0, y: 0 });
+    setDragPosition({ x: 0, y: 0 });
+  
+    // Force reflow for smooth transition
+    if (element) {
+      element.getBoundingClientRect();
+    }
   };
-
   useEffect(() => {
     // Cleanup function to ensure no lingering event listeners
     return () => {
@@ -731,45 +736,61 @@ const sliceImage = useCallback(() => {
     };
   }, [draggingId, dragOffset, dragPosition]);
 
-// Near the bottom of the file, replace the existing PuzzlePiece component
-const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
-  const pieceStyles = {
-    position: 'absolute',
-    width: `${100/gridSize}%`,
-    height: `${100/gridSize}%`,
-    left: `${(piece.currentX * 100)/gridSize}%`,
-    top: `${(piece.currentY * 100)/gridSize}%`,
-    backgroundImage: `url(${piece.originalSrc})`,
-    backgroundSize: piece.isAnimated 
-      ? `${gridSize * 100}% ${gridSize * 100}%` 
-      : `${gridSize * 100}%`,
-    backgroundPosition: `${-(piece.correctX * 100)}% ${-(piece.correctY * 100)}%`,
-    transition: draggingId === piece.id ? 'none' : 'all 0.3s ease',
-    cursor: gameStarted ? 'grab' : 'default',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    boxShadow: draggingId === piece.id ? '0 8px 16px rgba(0,0,0,0.3)' : 'none',
-    touchAction: 'none',
-    WebkitTapHighlightColor: 'transparent',
-    WebkitTouchCallout: 'none',
-    userSelect: 'none',
-    WebkitUserSelect: 'none',
-    zIndex: draggingId === piece.id ? '1000' : '1',
+  const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
+    const pieceStyles = {
+      position: 'absolute',
+      width: `${100/gridSize}%`,
+      height: `${100/gridSize}%`,
+      left: `${(piece.currentX * 100)/gridSize}%`,
+      top: `${(piece.currentY * 100)/gridSize}%`,
+      backgroundImage: `url(${piece.originalSrc})`,
+      backgroundSize: piece.isAnimated 
+        ? `${gridSize * 100}% ${gridSize * 100}%` 
+        : `${gridSize * 100}%`,
+      backgroundPosition: `${-(piece.correctX * 100)}% ${-(piece.correctY * 100)}%`,
+      transition: draggingId === piece.id ? 'none' : 'all 0.3s cubic-bezier(0.2, 0, 0.2, 1)',
+      cursor: gameStarted ? 'grab' : 'default',
+      border: '1px solid rgba(255, 255, 255, 0.1)',
+      boxShadow: draggingId === piece.id ? '0 8px 16px rgba(0,0,0,0.3)' : 'none',
+      touchAction: 'none',
+      WebkitTapHighlightColor: 'transparent',
+      WebkitTouchCallout: 'none',
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+      zIndex: draggingId === piece.id ? '1000' : '1',
+      // Mobile optimizations
+      willChange: 'transform',
+      transform: 'translateZ(0)', // Force hardware acceleration
+      backfaceVisibility: 'hidden',
+      WebkitBackfaceVisibility: 'hidden',
+      MozOsxFontSmoothing: 'grayscale' // Improve text rendering
+    };
+  
+    return (
+      <div
+        id={`piece-${piece.id}`}
+        className={`puzzle-piece ${draggingId === piece.id ? 'dragging' : ''}`}
+        style={pieceStyles}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          onMouseDown(e, piece.id);
+        }}
+        onTouchStart={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          onTouchStart(e, piece.id);
+        }}
+        onTouchEnd={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onTouchCancel={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      />
+    );
   };
-
-  return (
-    <div
-      id={`piece-${piece.id}`}
-      className={`puzzle-piece ${draggingId === piece.id ? 'dragging' : ''}`}
-      style={pieceStyles}
-      onMouseDown={(e) => onMouseDown(e, piece.id)}
-      onTouchStart={(e) => {
-        // This ensures touch events are properly handled
-        e.stopPropagation();
-        onTouchStart(e, piece.id);
-      }}
-    />
-  );
-};
 
 useEffect(() => {
   const handleResize = () => {
@@ -2257,27 +2278,47 @@ document.addEventListener('click', (e) => {
 };
 
 const containerStyles = {
-  touchAction: 'none',
-  WebkitTouchCallout: 'none',
-  WebkitOverflowScrolling: 'touch',
-  '-webkit-user-select': 'none',
-  WebkitUserSelect: 'none',
+  // Layout and sizing
   position: 'relative',
-  userSelect: 'none',
-  overflow: 'hidden',
   width: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
   height: containerDimensions.height > 0 ? `${containerDimensions.height}px` : 'auto',
-  aspectRatio: image?.width && image?.height ? `${image.width}/${image.height}` : '1 / 1', // Fallback to square
+  aspectRatio: image?.width && image?.height ? `${image.width}/${image.height}` : '1/1',
+  
+  // Touch interaction
+  touchAction: 'none',
+  WebkitTouchCallout: 'none',
+  WebkitTapHighlightColor: 'transparent',
+  WebkitUserSelect: 'none',
+  userSelect: 'none',
+  
+  // Visual styling
+  overflow: 'visible',
+  borderRadius: '16px',
+  border: isDarkMode 
+    ? '2px solid rgba(255, 255, 255, 0.1)' 
+    : '2px solid rgba(0, 0, 0, 0.1)',
+  boxShadow: isDarkMode
+    ? '0 8px 32px rgba(0, 0, 0, 0.3)'
+    : '0 8px 32px rgba(0, 0, 0, 0.1)',
+  
+  // Responsive behavior
+  margin: '0 auto',
+  maxWidth: '100%',
+  transition: 'all 0.3s ease',
+  
+  // Performance optimizations
+  backfaceVisibility: 'hidden',
+  willChange: 'transform',
+  transform: 'translateZ(0)'
 };
 
 return (
-  <section id="create" className="py-12 relative min-h-screen transition-all duration-500" 
+  <section id="create" className="py-12 relative transition-all duration-500"
   style={{
     background: isDarkMode 
       ? 'radial-gradient(circle at center, #1a1a2e 0%, #16213e 50%, #0f172a 100%)' 
       : 'radial-gradient(circle at center, #e0f2fe 0%, #bfdbfe 50%, #93c5fd 100%)'
   }}>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   {/* Theme Toggle Button */}
   <button 
     onClick={() => setIsDarkMode(!isDarkMode)}
@@ -2353,11 +2394,11 @@ return (
     {/* Render selected NFT section if an NFT is provided */}
     {nft && renderSelectedNFT()}
 
-    <div className={`max-w-4xl mx-auto rounded-2xl transition-all duration-500 overflow-hidden animate-slideUp ${
-      isDarkMode 
-        ? 'bg-gray-800/60 border border-gray-700 shadow-[0_0_20px_rgba(138,92,246,0.9)]' 
-        : 'bg-white/80 border border-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.1)]'
-    }`}>
+    <div className={`max-w-4xl mx-auto rounded-2xl transition-all duration-500 animate-slideUp ${
+  isDarkMode 
+    ? 'bg-gray-800/60 border border-gray-700 shadow-[0_0_20px_rgba(138,92,246,0.9)]' 
+    : 'bg-white/80 border border-gray-200 shadow-[0_10px_30px_rgba(0,0,0,0.1)]'
+}`}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8 p-4 sm:p-8">
       
           {/* Grid Size and Collection Input */}
@@ -2405,19 +2446,29 @@ return (
                 Reset
               </button>
               <button
-                onClick={shufflePieces}
-                className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-                  !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
-                } ${
-                  isDarkMode 
-                    ? 'bg-purple-600/80 text-white hover:bg-purple-500' 
-                    : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                }`}
-                disabled={!image}
-              >
-                <Shuffle size={18} />
-                Shuffle
-              </button>
+  onClick={shufflePieces}
+  onTouchStart={(e) => {
+    e.stopPropagation(); // Prevent touch event from bubbling to puzzle container
+    e.preventDefault(); // Prevent default touch behavior
+    shufflePieces();
+  }}
+  className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
+    !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
+  } ${
+    isDarkMode 
+      ? 'bg-purple-600/80 text-white hover:bg-purple-500' 
+      : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+  }`}
+  style={{
+    touchAction: 'manipulation', // Improve touch responsiveness
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+  }}
+  disabled={!image}
+>
+  <Shuffle size={18} />
+  Shuffle
+</button>
              {/* Button to Cycle Effects */}
       <button
         onClick={cycleEffects}
@@ -2462,10 +2513,13 @@ return (
             
             <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-     
-            <div 
+            <div style={{ 
+  overflowY: 'auto',
+  WebkitOverflowScrolling: 'touch'
+}}>
+           <div 
   ref={containerRef}
-  key={image?.src}
+  key={image?.src} // ← Add this
   className="puzzle-container relative mx-auto w-full overflow-visible"
   style={containerStyles}
 >
@@ -2518,40 +2572,11 @@ return (
                 />
               )}
               
-              {/* Add the effects button here */}
-              {(solved || hasBeenSolved) && (
-                <button
-                  onClick={() => {
-                    setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
-                    setShowEffectOverlay(true);
-                    setTimeout(() => setShowEffectOverlay(false), 300);
-                  }}
-                  className={`absolute bottom-4 right-4 px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-300 ${
-                    isDarkMode 
-                      ? 'bg-gray-800/80 text-white hover:bg-gray-700' 
-                      : 'bg-white/80 text-gray-700 hover:bg-gray-200'
-                  } backdrop-blur-sm border border-white/10 shadow-lg`}
-                >
-                  <span className="text-sm font-medium">
-                    Effect: {colorEffects[currentEffect].name}
-                  </span>
-                  <svg 
-                    xmlns="http://www.w3.org/2000/svg" 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    className="w-4 h-4"
-                    strokeWidth="2"
-                  >
-                    <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" />
-                  </svg>
-                </button>
-              )}
-
               {showEffectOverlay && (
                 <div className="absolute inset-0 bg-white/10 backdrop-blur-sm transition-opacity duration-300" />
               )}
             </div>
+          </div>
           </div>
           
           {/* Game Status */}
