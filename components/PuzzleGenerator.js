@@ -16,6 +16,7 @@ import { ethers } from 'ethers';
 import contractABI from '../utils/contractABI.json';
 import { PUZZLE_NFT_ABI } from '../utils/mint';
 
+
 const PuzzleGenerator = ({ nft }) => {
   const [gridSize, setGridSize] = useState(3);
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -82,6 +83,83 @@ const [draggingPieceIndex, setDraggingPieceIndex] = useState(null);
 const [draggingPiece, setDraggingPiece] = useState(null);
 const dragPositionRef = useRef({ x: 0, y: 0 });
 const dragOffsetRef = useRef({ x: 0, y: 0 });
+// Add this component near your Mint button
+const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode }) => {
+  const [isMobile, setIsMobile] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  
+  useEffect(() => {
+    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+  }, []);
+  
+  return (
+    <div className="flex-1 flex flex-col">
+      <button
+        onClick={handleMint}
+        disabled={!image || loading}
+        className={`w-full py-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-semibold
+        ${(!image || loading) 
+          ? 'opacity-50 cursor-not-allowed' 
+          : 'hover:shadow-lg hover:translate-y-[-2px]'
+        } ${
+          isDarkMode 
+            ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white' 
+            : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
+        }`}
+      >
+        {loading ? (
+          <>
+            <div className="animate-spin h-5 w-5 rounded-full border-2 border-white border-t-transparent"></div>
+            <span>Processing...</span>
+          </>
+        ) : (
+          <>
+            <span className="text-lg">Mint as NFT</span>
+          </>
+        )}
+      </button>
+      
+      {/* Help button for mobile users */}
+      {isMobile && (
+        <div className="mt-2">
+          <button 
+            onClick={() => setShowHelp(!showHelp)}
+            className="text-sm text-gray-500 underline flex items-center justify-center mt-1"
+          >
+            Having issues on mobile? Click here
+          </button>
+          
+          {showHelp && (
+            <div className="mt-2 p-4 bg-gray-100 rounded-lg text-sm">
+              <h4 className="font-bold">Mobile Wallet Tips:</h4>
+              <ul className="list-disc pl-5 mt-1">
+                <li>Make sure your wallet app (MetaMask, etc.) is installed</li>
+                <li>If the app doesn't open automatically, try manually opening it first</li>
+                <li>Connect your wallet before minting</li>
+                <li>Switch to the Base network in your wallet settings</li>
+                <li>If all else fails, try minting on desktop</li>
+              </ul>
+              <button 
+                onClick={() => {
+                  // Alternative direct MetaMask app open for mobile
+                  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                    window.location.href = 'https://metamask.app.link/';
+                  } else {
+                    window.location.href = 'intent://metamask.app/#Intent;scheme=metamask;package=io.metamask;end;';
+                  }
+                }}
+                className="mt-3 w-full py-2 bg-blue-500 text-white rounded-lg"
+              >
+                Open Wallet App Directly
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 
   const colorEffects = [
     { name: 'Normal', filter: 'none' },
@@ -1030,11 +1108,32 @@ const dragOffsetRef = useRef({ x: 0, y: 0 });
           setError(null);
           setMintError(null);
       
-          // Mobile detection and deeplinking
+          // Improved mobile detection and wallet handling
           const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-          if (isMobile && !window.ethereum?.isConnected()) {
+          
+          // Check if wallet is connected
+          const isWalletConnected = window.ethereum?.isConnected && window.ethereum.isConnected();
+          
+          if (isMobile && !isWalletConnected) {
+            // Use different approaches for iOS vs Android
             const dappUrl = encodeURIComponent(window.location.href);
-            window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+            
+            if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+              // Universal link for iOS
+              window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+            } else {
+              // Intent URL for Android (more reliable)
+              window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
+            }
+            
+            // Set a timeout to check if wallet connection was successful
+            setTimeout(() => {
+              if (!window.ethereum?.isConnected()) {
+                setLoading(false);
+                setError("Please connect your wallet to mint. If your wallet app didn't open, you may need to install it first.");
+              }
+            }, 3000);
+            
             return;
           }
       
@@ -1099,8 +1198,12 @@ const dragOffsetRef = useRef({ x: 0, y: 0 });
               timeoutPromise
             ]);
           } catch (error) {
+            // Enhanced error handling for mobile
             if (error.code === 4001) throw new Error("User rejected transaction");
             if (error.message.includes('timeout')) throw new Error("Transaction timeout");
+            if (isMobile && (error.message.includes('disconnected') || error.message.includes('connect'))) {
+              throw new Error("Wallet connection issue. Please try reopening your wallet app and try again.");
+            }
             throw error;
           }
       
@@ -2745,33 +2848,14 @@ return (
           </div>
         </div>
 
-        {/* Minting and Sharing Section */}
         <div className={`p-6 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-          <div className="flex flex-wrap gap-4">
-            <button
-              onClick={handleMint}
-              disabled={!image || loading}
-              className={`flex-1 py-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-semibold
-              ${(!image || loading) 
-                ? 'opacity-50 cursor-not-allowed' 
-                : 'hover:shadow-lg hover:translate-y-[-2px]'
-              } ${
-                isDarkMode 
-                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white' 
-                  : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
-              }`}
-            >
-              {loading ? (
-                <>
-                  <div className="animate-spin h-5 w-5 rounded-full border-2 border-white border-t-transparent"></div>
-                  <span>Processing...</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-lg">Mint as NFT</span>
-                </>
-              )}
-            </button>
+  <div className="flex flex-wrap gap-4">
+    <MintButtonWithFallback 
+      handleMint={handleMint}
+      image={image}
+      loading={loading}
+      isDarkMode={isDarkMode}
+    />
 
             {/* Sharing Button with animated menu */}
             <div className="relative flex-1">
