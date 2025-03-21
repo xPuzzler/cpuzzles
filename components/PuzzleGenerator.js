@@ -77,6 +77,11 @@ const contractABI = [
   "function MINT_PRICE() external view returns (uint256)",
   "function MAX_PER_WALLET() external view returns (uint256)"
 ];
+const piecesNeedUpdate = useRef(false);
+const [draggingPieceIndex, setDraggingPieceIndex] = useState(null);
+const [draggingPiece, setDraggingPiece] = useState(null);
+const dragPositionRef = useRef({ x: 0, y: 0 });
+const dragOffsetRef = useRef({ x: 0, y: 0 });
 
   const colorEffects = [
     { name: 'Normal', filter: 'none' },
@@ -105,20 +110,6 @@ const contractABI = [
       setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
     };
 
-    // At the top of your component
-useEffect(() => {
-  // Detect mobile browsers
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  console.log('Mobile detected:', isMobile);
-  
-  // Prevent zooming
-  const preventZoom = (e) => {
-    if (e.touches.length > 1) e.preventDefault();
-  };
-  
-  document.addEventListener('touchstart', preventZoom, { passive: false });
-  return () => document.removeEventListener('touchstart', preventZoom);
-}, []);
 
   useEffect(() => {
     const fetchMints = async () => {
@@ -150,65 +141,27 @@ useEffect(() => {
       img.src = `/api/proxy?url=${encodeURIComponent(nft.image)}`;
     }
   }, [nft]);
+
   useEffect(() => {
-    const updateWindowDimensions = () => {
-      setWidth(window.innerWidth);
-      setHeight(window.innerHeight);
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setContainerDimensions({
+          width: rect.width,
+          height: rect.height
+        });
+      }
     };
     
-    updateWindowDimensions();
-    window.addEventListener('resize', updateWindowDimensions);
-    
-    return () => {
-      window.removeEventListener('resize', updateWindowDimensions);
-    };
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
   }, []);
-
-  useEffect(() => {
-    if (image && containerRef.current) {
-      const containerWidth = containerRef.current.offsetWidth;
-      const maxWidth = Math.min(containerWidth, image.width);
-      const scaleFactor = maxWidth / image.width;
-      const height = image.height * scaleFactor;
-      
-      setContainerDimensions({
-        width: maxWidth,
-        height: height
-      });
-    }
-  }, [image, containerRef, window.innerWidth]);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      const preventDefaultTouch = (e) => {
-        if (gameStarted) {
-          e.preventDefault();
-        }
-      };
-      
-      const container = containerRef.current;
-      container.addEventListener('touchstart', preventDefaultTouch, { passive: false });
-      
-      return () => {
-        container.removeEventListener('touchstart', preventDefaultTouch);
-      };
-    }
-  }, [gameStarted, containerRef]);
 
   const handleSelectNFT = (nft) => {
     console.log("NFT Selected:", nft); // Debug log
     setSelectedNFT(nft); // Make sure this updates state
 };
-
-  const handleEffectClick = () => {
-    if (solved || hasBeenSolved) {
-      setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
-      
-      // Show the effect overlay with animation
-      setShowEffectOverlay(true);
-      setTimeout(() => setShowEffectOverlay(false), 300);
-    }
-  };
 
   const onDrop = useCallback(acceptedFiles => {
     const file = acceptedFiles[0];
@@ -250,83 +203,124 @@ useEffect(() => {
     maxSize: 5 * 1024 * 1024
   });
   
-
-  
-  // Add this useEffect to monitor collection name changes
   useEffect(() => {
     if (collectionName) {
       console.log('Collection name state updated to:', collectionName);
     }
   }, [collectionName]);
 
+  const handleEffectClick = () => {
+    if (solved || hasBeenSolved) {
+      setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
+      
+      // Show the effect overlay with animation
+      setShowEffectOverlay(true);
+      setTimeout(() => setShowEffectOverlay(false), 300);
+    }
+  };
 
-
-// Replace the existing sliceImage function
-const sliceImage = useCallback(() => {
-  if (!image || !canvasRef.current || !containerRef.current) return;
-
-  // Get container dimensions
-  const containerWidth = containerRef.current.offsetWidth;
-  const containerHeight = containerRef.current.offsetHeight;
+  const sliceImage = useCallback(() => {
+    if (!image || !canvasRef.current || !containerRef.current) return;
   
-  // Calculate aspect ratio
-  const imageAspectRatio = image.width / image.height;
+    // Get container dimensions
+    const containerWidth = containerRef.current.offsetWidth;
+    const containerHeight = containerRef.current.offsetHeight;
+    
+    // Calculate aspect ratio
+    const imageAspectRatio = image.width / image.height;
+    
+    // Calculate dimensions to fit image in container without empty space
+    let displayWidth, displayHeight;
+    
+    // Fit image in container maintaining aspect ratio
+    if (imageAspectRatio > 1) {
+      // Landscape image
+      displayWidth = Math.min(containerWidth, image.width);
+      displayHeight = displayWidth / imageAspectRatio;
+    } else {
+      // Portrait or square image
+      displayHeight = Math.min(containerHeight, image.height);
+      displayWidth = displayHeight * imageAspectRatio;
+    }
+    
+    // Set container dimensions to match the image
+    setContainerDimensions({
+      width: displayWidth,
+      height: displayHeight
+    });
+    
+    // Canvas setup for slicing
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    ctx.drawImage(image, 0, 0);
   
-  // Calculate dimensions to fit container
-  let displayWidth, displayHeight;
-  if (imageAspectRatio > 1) {
-    displayWidth = Math.min(containerWidth, image.width);
-    displayHeight = displayWidth / imageAspectRatio;
-  } else {
-    displayHeight = Math.min(containerHeight, image.height);
-    displayWidth = displayHeight * imageAspectRatio;
-  }
-  
-  setContainerDimensions({
-    width: displayWidth,
-    height: displayHeight
-  });
-  
-  // Set up canvas
-  const canvas = canvasRef.current;
-  const ctx = canvas.getContext('2d');
-  canvas.width = image.width;
-  canvas.height = image.height;
-  
-  // Create new image with crossOrigin
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.src = image.src;
-  
-  img.onload = () => {
-    ctx.drawImage(img, 0, 0);
     const pieceWidth = image.width / gridSize;
     const pieceHeight = image.height / gridSize;
     const displayPieceWidth = displayWidth / gridSize;
     const displayPieceHeight = displayHeight / gridSize;
+  
     const newPieces = [];
-
-    for (let y = 0; y < gridSize; y++) {
-      for (let x = 0; x < gridSize; x++) {
-        newPieces.push({
-          id: `${x}-${y}`,
-          correctX: x,
-          correctY: y,
-          currentX: x,
-          currentY: y,
-          isAnimated: false,
-          originalSrc: img.src,
-          clipInfo: {
-            x: x * pieceWidth,
-            y: y * pieceHeight,
-            width: pieceWidth,
-            height: pieceHeight
-          },
-          xPos: x * displayPieceWidth,
-          yPos: y * displayPieceHeight,
-          displayWidth: displayPieceWidth,
-          displayHeight: displayPieceHeight
-        });
+    
+    // Create puzzle pieces
+    if (isAnimated) {
+      // For GIFs
+      for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+          newPieces.push({
+            id: `${x}-${y}`,
+            correctX: x,
+            correctY: y,
+            currentX: x,
+            currentY: y,
+            isAnimated: true,
+            originalSrc: image.src,
+            clipInfo: {
+              x: x * pieceWidth,
+              y: y * pieceHeight,
+              width: pieceWidth,
+              height: pieceHeight,
+              totalWidth: image.width,
+              totalHeight: image.height
+            },
+            xPos: x * displayPieceWidth,
+            yPos: y * displayPieceHeight,
+            displayWidth: displayPieceWidth,
+            displayHeight: displayPieceHeight
+          });
+        }
+      }
+    } else {
+      // For static images
+      for (let y = 0; y < gridSize; y++) {
+        for (let x = 0; x < gridSize; x++) {
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = pieceWidth;
+          tempCanvas.height = pieceHeight;
+          const tempCtx = tempCanvas.getContext('2d');
+          
+          tempCtx.drawImage(
+            canvas,
+            x * pieceWidth, y * pieceHeight,
+            pieceWidth, pieceHeight,
+            0, 0, pieceWidth, pieceHeight
+          );
+  
+          newPieces.push({
+            id: `${x}-${y}`,
+            correctX: x,
+            correctY: y,
+            currentX: x,
+            currentY: y,
+            isAnimated: false,
+            img: tempCanvas.toDataURL(),
+            xPos: x * displayPieceWidth,
+            yPos: y * displayPieceHeight,
+            displayWidth: displayPieceWidth,
+            displayHeight: displayPieceHeight
+          });
+        }
       }
     }
     
@@ -335,8 +329,7 @@ const sliceImage = useCallback(() => {
     setGameStarted(false);
     setCurrentEffect(0);
     setHasBeenSolved(false);
-  };
-}, [image, gridSize]);
+  }, [image, gridSize, isAnimated]);
 
   const shufflePieces = useCallback(() => {
     if (!image || pieces.length === 0) return;
@@ -388,26 +381,26 @@ const sliceImage = useCallback(() => {
     const offsetX = e.clientX - rect.left;
     const offsetY = e.clientY - rect.top;
     
-    // Find the original piece position
-    const piece = pieces.find(p => p.id === id);
+    // Store offsets in ref instead of state
+    dragOffsetRef.current = { x: offsetX, y: offsetY };
     
+    // Set dragging ID (this will trigger only one render)
     setDraggingId(id);
-    setDragOffset({ x: offsetX, y: offsetY });
     
-    // Store the initial position of the drag
+    // Store position in ref instead of state
     const containerRect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - containerRect.left - offsetX;
     const y = e.clientY - containerRect.top - offsetY;
-    setDragPosition({ x, y });
+    dragPositionRef.current = { x, y };
     
-    // Apply the absolute positioning immediately
+    // Apply styling
     element.style.position = 'absolute';
     element.style.zIndex = '100';
     element.style.left = `${x}px`;
     element.style.top = `${y}px`;
     element.classList.add('dragging');
   };
-  
+
   const handleMouseMove = (e) => {
     if (!draggingId) return;
     e.preventDefault();
@@ -420,17 +413,17 @@ const sliceImage = useCallback(() => {
     const mouseY = e.clientY - containerRect.top;
     
     // Calculate position based on mouse and offset
-    const x = mouseX - dragOffset.x;
-    const y = mouseY - dragOffset.y;
+    const x = mouseX - dragOffsetRef.current.x;
+    const y = mouseY - dragOffsetRef.current.y;
     
-    // Update drag position state
-    setDragPosition({ x, y });
+    // Update ref instead of state
+    dragPositionRef.current = { x, y };
     
-    // Apply absolute positioning to follow mouse
+    // Apply styling
     element.style.left = `${x}px`;
     element.style.top = `${y}px`;
   };
-  
+
   const handleMouseUp = (e) => {
     if (!draggingId) return;
     e.preventDefault();
@@ -501,174 +494,159 @@ const sliceImage = useCallback(() => {
     
     setDraggingId(null);
   };
-  
+
   const handleTouchStart = (e, id) => {
-    e.preventDefault();
-    e.stopPropagation(); // Prevent event bubbling to parent elements
     if (!gameStarted) return;
-  
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${id}`);
     if (!element) return;
-  
-    // Get container dimensions fresh each touch
-    const container = containerRef.current;
-    const containerRect = container.getBoundingClientRect();
     
-    // Calculate positions relative to container
-    const offsetX = touch.clientX - containerRect.left - element.offsetLeft;
-    const offsetY = touch.clientY - containerRect.top - element.offsetTop;
-  
-    // Visual feedback
-    element.style.transform = "scale(1.02)";
-    element.style.transition = "transform 0.1s";
-    element.style.zIndex = "1000";
-  
+    const rect = element.getBoundingClientRect();
+    const offsetX = touch.clientX - rect.left;
+    const offsetY = touch.clientY - rect.top;
+    
+    // Store offsets in ref instead of state
+    dragOffsetRef.current = { x: offsetX, y: offsetY };
+    
+    // Set dragging ID (this will trigger only one render)
     setDraggingId(id);
-    setDragOffset({ x: offsetX, y: offsetY });
+    
+    // Store position in ref instead of state
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const x = touch.clientX - containerRect.left - offsetX;
+    const y = touch.clientY - containerRect.top - offsetY;
+    dragPositionRef.current = { x, y };
+    
+    // Apply styling
+    element.style.position = 'absolute';
+    element.style.zIndex = '100';
+    element.style.left = `${x}px`;
+    element.style.top = `${y}px`;
+    element.classList.add('dragging');
   };
-  
+
   const handleTouchMove = (e) => {
+    if (!draggingId) return;
+    
     e.preventDefault();
     e.stopPropagation();
-    if (!draggingId) return;
-  
+    
     const touch = e.touches[0];
     const element = document.getElementById(`piece-${draggingId}`);
-    const container = containerRef.current;
-    const containerRect = container.getBoundingClientRect();
-  
-    // Calculate boundaries
-    const pieceWidth = containerRect.width / gridSize;
-    const pieceHeight = containerRect.height / gridSize;
+    if (!element) return;
     
-    // Calculate new position with constraints
-    let newX = touch.clientX - containerRect.left - dragOffset.x;
-    let newY = touch.clientY - containerRect.top - dragOffset.y;
-  
-    // Keep pieces within container bounds
-    newX = Math.max(0, Math.min(newX, containerRect.width - pieceWidth));
-    newY = Math.max(0, Math.min(newY, containerRect.height - pieceHeight));
-  
-    element.style.left = `${newX}px`;
-    element.style.top = `${newY}px`;
-  };
-  
-  const handleTouchEnd = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!draggingId) return;
-  
-    const draggedPiece = pieces.find(p => p.id === draggingId);
-    const element = document.getElementById(`piece-${draggingId}`);
-    const container = containerRef.current;
-  
-    // Cleanup event listeners first
-    document.removeEventListener('touchmove', handleTouchMove);
-    document.removeEventListener('touchend', handleTouchEnd);
-  
-    if (element) {
-      // Reset visual styles
-      element.style.transform = '';
-      element.style.transition = 'all 0.3s ease';
-      element.style.zIndex = '1';
-      element.classList.remove('dragging');
-      
-      // Reset position properties
-      element.style.position = '';
-      element.style.left = '';
-      element.style.top = '';
-    }
-  
-    // Get fresh container measurements
-    const containerRect = container.getBoundingClientRect();
-    const pieceWidth = containerRect.width / gridSize;
-    const pieceHeight = containerRect.height / gridSize;
-  
-    // Get final touch position
-    const touch = e.changedTouches[0];
+    const containerRect = containerRef.current.getBoundingClientRect();
+    
+    // Calculate position more accurately - this is a key fix
     const touchX = touch.clientX - containerRect.left;
     const touchY = touch.clientY - containerRect.top;
-  
-    // Calculate grid position with boundary checks
-    const gridX = Math.max(0, Math.min(Math.floor(touchX / pieceWidth), gridSize - 1));
-    const gridY = Math.max(0, Math.min(Math.floor(touchY / pieceHeight), gridSize - 1));
-  
-    // Perform piece swap if valid
-    if (draggedPiece) {
-      const targetPiece = pieces.find(p => 
-        p.currentX === gridX && 
-        p.currentY === gridY &&
-        p.id !== draggingId
-      );
-  
-      if (targetPiece) {
-        setPieces(prevPieces => prevPieces.map(piece => {
-          if (piece.id === draggingId) {
-            return {
-              ...piece,
-              currentX: gridX,
-              currentY: gridY,
-              xPos: gridX * pieceWidth,
-              yPos: gridY * pieceHeight
-            };
-          }
-          if (piece.id === targetPiece.id) {
-            return {
-              ...piece,
-              currentX: draggedPiece.currentX,
-              currentY: draggedPiece.currentY,
-              xPos: draggedPiece.currentX * pieceWidth,
-              yPos: draggedPiece.currentY * pieceHeight
-            };
-          }
-          return piece;
-        }));
-  
-        setMoves(m => m + 1);
+    
+    // Use absolute position values instead of transforms for more reliable positioning
+    const x = touchX - dragOffsetRef.current.x;
+    const y = touchY - dragOffsetRef.current.y;
+    
+    dragPositionRef.current = { x, y };
+    
+    // Apply position directly with no transition
+    element.style.left = `${x}px`;
+    element.style.top = `${y}px`;
+    element.style.transition = 'none';
+  }
+
+  const handleTouchEnd = (e) => {
+    if (!draggingId) return;
+    
+    const draggedPiece = pieces.find(p => p.id === draggingId);
+    if (!draggedPiece) return;
+    
+    const element = document.getElementById(`piece-${draggingId}`);
+    if (!element) return;
+    
+    // Get final position from ref or touch event
+    const containerRect = containerRef.current.getBoundingClientRect();
+    let touchX, touchY;
+    
+    if (e.changedTouches && e.changedTouches.length > 0) {
+      const touch = e.changedTouches[0];
+      touchX = touch.clientX - containerRect.left;
+      touchY = touch.clientY - containerRect.top;
+    } else {
+      // Use the ref value as fallback
+      touchX = dragPositionRef.current.x + dragOffset.x;
+      touchY = dragPositionRef.current.y + dragOffset.y;
+    }
+    
+    // Find which grid cell it's over
+    const pieceWidth = containerDimensions.width / gridSize;
+    const pieceHeight = containerDimensions.height / gridSize;
+    
+    const gridX = Math.floor(touchX / pieceWidth);
+    const gridY = Math.floor(touchY / pieceHeight);
+    
+    // Only swap if we're within grid boundaries
+    if (gridX >= 0 && gridX < gridSize && gridY >= 0 && gridY < gridSize) {
+      // Find which piece is currently in this spot
+      const targetPiece = pieces.find(p => p.currentX === gridX && p.currentY === gridY);
+      
+      if (targetPiece && targetPiece.id !== draggingId) {
+        // Only swap these two pieces
+        setPieces(prevPieces => {
+          return prevPieces.map(piece => {
+            if (piece.id === draggingId) {
+              // This is the dragged piece - move it to target position
+              return {
+                ...piece,
+                currentX: gridX,
+                currentY: gridY,
+                xPos: gridX * pieceWidth,
+                yPos: gridY * pieceHeight
+              };
+            } 
+            else if (piece.id === targetPiece.id) {
+              // This is the target piece - move it to dragged piece's original position
+              return {
+                ...piece,
+                currentX: draggedPiece.currentX,
+                currentY: draggedPiece.currentY,
+                xPos: draggedPiece.currentX * pieceWidth,
+                yPos: draggedPiece.currentY * pieceHeight
+              };
+            }
+            // All other pieces stay where they are
+            return piece;
+          });
+        });
         
-        // Delay solve check for animation completion
-        setTimeout(() => {
-          const isSolved = pieces.every(p => 
-            p.currentX === p.correctX && 
-            p.currentY === p.correctY
-          );
-          setSolved(isSolved);
-          if (isSolved) {
-            setShowConfetti(true);
-            setTimeout(() => setShowConfetti(false), 5000);
-          }
-        }, 300);
+        setMoves(m => m + 1);
       }
     }
-  
-    // Final cleanup
+    
+    element.classList.remove('dragging');
+    element.style.position = '';
+    element.style.zIndex = '';
+    element.style.left = '';
+    element.style.top = '';
+    element.style.transform = '';
+    
+    // Clear dragging state
     setDraggingId(null);
-    setDragOffset({ x: 0, y: 0 });
-    setDragPosition({ x: 0, y: 0 });
-  
-    // Force reflow for smooth transition
-    if (element) {
-      element.getBoundingClientRect();
-    }
   };
-  useEffect(() => {
-    // Cleanup function to ensure no lingering event listeners
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleTouchMove);
-      document.removeEventListener('touchend', handleTouchEnd);
+  
+  const debounce = (func, wait) => {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
     };
-  }, []); 
-
-  const [debugInfo, setDebugInfo] = useState({
-    lastAction: 'none',
-    touchX: 0,
-    touchY: 0,
-    gridX: 0,
-    gridY: 0
-  });
+  };
 
   useEffect(() => {
     if (pieces.length > 0 && gameStarted && moves > 0) {
@@ -680,17 +658,68 @@ const sliceImage = useCallback(() => {
       if (isSolved) {
         setSolved(true);
         setHasBeenSolved(true);
-        setShowConfetti(true); // Show confetti
-        setShowSuccessMessage(true); // Show success message
+        setShowConfetti(true);
+        setShowSuccessMessage(true);
   
         // Hide confetti and success message after 5 seconds
         setTimeout(() => {
-          setShowConfetti(false); // Hide confetti
-          setShowSuccessMessage(false); // Hide success message
+          setShowConfetti(false);
+          setShowSuccessMessage(false);
+          
+          // Add this: Re-enable interaction after hiding UI elements
+          const puzzlePieces = document.querySelectorAll('.puzzle-piece');
+          puzzlePieces.forEach(piece => {
+            piece.style.pointerEvents = 'auto';
+          });
         }, 5000);
       }
     }
   }, [pieces, gameStarted, moves]);
+
+  useEffect(() => {
+    if (containerDimensions.width > 0 && pieces.length > 0 && gameStarted) {
+      const pieceWidth = containerDimensions.width / gridSize;
+      const pieceHeight = containerDimensions.height / gridSize;
+      
+      setPieces(prevPieces => {
+        return prevPieces.map(piece => {
+          return {
+            ...piece,
+            xPos: piece.currentX * pieceWidth,
+            yPos: piece.currentY * pieceHeight,
+            displayWidth: pieceWidth,
+            displayHeight: pieceHeight
+          };
+        });
+      });
+    }
+  }, [containerDimensions, gridSize, gameStarted]);
+
+  const handleDragEnd = (index, x, y) => {
+    // Calculate the grid position from the drag position
+    const pieceWidth = containerDimensions.width / gridSize;
+    const pieceHeight = containerDimensions.height / gridSize;
+    
+    const gridX = Math.round(x / pieceWidth);
+    const gridY = Math.round(y / pieceHeight);
+    
+    setPieces(prevPieces => {
+      return prevPieces.map((piece, i) => {
+        if (i === index) {
+          return {
+            ...piece,
+            currentX: gridX,
+            currentY: gridY,
+            xPos: gridX * pieceWidth,
+            yPos: gridY * pieceHeight,
+            // Assuming you're tracking if a piece is in correct position
+            isCorrect: gridX === piece.correctX && gridY === piece.correctY
+          };
+        }
+        return piece;
+      });
+    });
+  };
 
   useEffect(() => {
     if (image) {
@@ -698,7 +727,6 @@ const sliceImage = useCallback(() => {
     }
   }, [image, gridSize, sliceImage]);
 
-  // Add event listeners for mouse movement and touch movement
   useEffect(() => {
     const handleGlobalMouseMove = (e) => {
       if (draggingId) {
@@ -736,77 +764,219 @@ const sliceImage = useCallback(() => {
       document.removeEventListener('touchend', handleGlobalTouchEnd);
     };
   }, [draggingId, dragOffset, dragPosition]);
-
+  
   const PuzzlePiece = ({ piece, onMouseDown, onTouchStart }) => {
+    const pieceRef = useRef(null);
+    
+    useEffect(() => {
+      const element = pieceRef.current;
+      if (!element) return;
+      
+      // Add specific touch handlers to the element
+      const handleTouchStartPiece = (e) => {
+        e.stopPropagation();
+        onTouchStart(e, piece.id);
+      };
+      
+      element.addEventListener('touchstart', handleTouchStartPiece, { passive: false });
+      
+      return () => {
+        element.removeEventListener('touchstart', handleTouchStartPiece);
+      };
+    }, [piece.id]);
+    
     const pieceStyles = {
       position: 'absolute',
       width: `${100/gridSize}%`,
       height: `${100/gridSize}%`,
       left: `${(piece.currentX * 100)/gridSize}%`,
       top: `${(piece.currentY * 100)/gridSize}%`,
-      backgroundImage: `url(${piece.originalSrc})`,
-      backgroundSize: piece.isAnimated 
-        ? `${gridSize * 100}% ${gridSize * 100}%` 
-        : `${gridSize * 100}%`,
-      backgroundPosition: `${-(piece.correctX * 100)}% ${-(piece.correctY * 100)}%`,
-      transition: draggingId === piece.id ? 'none' : 'all 0.3s cubic-bezier(0.2, 0, 0.2, 1)',
+      backgroundImage: piece.isAnimated ? `url(${piece.originalSrc})` : `url(${piece.img})`,
+      backgroundSize: piece.isAnimated ? `${gridSize * 100}% ${gridSize * 100}%` : '100% 100%',
+      backgroundPosition: piece.isAnimated 
+        ? `${-(piece.correctX * 100)}% ${-(piece.correctY * 100)}%`
+        : 'center',
+      transition: draggingId === piece.id ? 'none' : 'all 0.3s ease',
       cursor: gameStarted ? 'grab' : 'default',
       border: '1px solid rgba(255, 255, 255, 0.1)',
       boxShadow: draggingId === piece.id ? '0 8px 16px rgba(0,0,0,0.3)' : 'none',
       touchAction: 'none',
-      WebkitTapHighlightColor: 'transparent',
-      WebkitTouchCallout: 'none',
       userSelect: 'none',
       WebkitUserSelect: 'none',
       zIndex: draggingId === piece.id ? '1000' : '1',
-      // Mobile optimizations
-      willChange: 'transform',
-      transform: 'translateZ(0)', // Force hardware acceleration
-      backfaceVisibility: 'hidden',
-      WebkitBackfaceVisibility: 'hidden',
-      MozOsxFontSmoothing: 'grayscale' // Improve text rendering
+      transform: draggingId === piece.id ? 'scale(1.05)' : 'scale(1)'
     };
-  
+    
+    // Add background image properties
+    const backgroundStyles = piece.isAnimated
+      ? {
+          backgroundImage: `url(${piece.originalSrc})`,
+          backgroundSize: `${piece.displayWidth * gridSize}px ${piece.displayHeight * gridSize}px`,
+          backgroundPosition: `-${piece.clipInfo.x * (piece.displayWidth/piece.clipInfo.width)}px -${piece.clipInfo.y * (piece.displayHeight/piece.clipInfo.height)}px`
+        }
+      : {
+          backgroundImage: `url(${piece.img})`,
+          backgroundSize: '100% 100%'
+        };
+    
     return (
       <div
+        ref={pieceRef}
         id={`piece-${piece.id}`}
         className={`puzzle-piece ${draggingId === piece.id ? 'dragging' : ''}`}
         style={pieceStyles}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          onMouseDown(e, piece.id);
-        }}
-        onTouchStart={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          onTouchStart(e, piece.id);
-        }}
-        onTouchEnd={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onTouchCancel={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
+        onMouseDown={(e) => onMouseDown(e, piece.id)}
       />
     );
   };
 
-useEffect(() => {
-  const handleResize = () => {
-    if (image && containerRef.current) {
-      const containerWidth = containerRef.current.offsetWidth;
-      const maxWidth = Math.min(containerWidth, image.width);
-      const scaleFactor = maxWidth / image.width;
-      const height = image.height * scaleFactor;
+  useEffect(() => {
+    const preventDefaultForTouchInPuzzle = (e) => {
+      if (containerRef.current && containerRef.current.contains(e.target)) {
+        e.preventDefault();
+      }
+    };
+    
+    // Keep a reference to the container for cleanup
+    const container = containerRef.current;
+    
+    // Attach event listeners
+    if (container) {
+      container.addEventListener('touchstart', preventDefaultForTouchInPuzzle, { passive: false });
+      container.addEventListener('touchmove', preventDefaultForTouchInPuzzle, { passive: false });
     }
-  };
-  
-  window.addEventListener('resize', handleResize);
-  return () => window.removeEventListener('resize', handleResize);
-}, [image]);
+    
+    return () => {
+      if (container) {
+        container.removeEventListener('touchstart', preventDefaultForTouchInPuzzle);
+        container.removeEventListener('touchmove', preventDefaultForTouchInPuzzle);
+      }
+    };
+  }, []);
 
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current && image) {
+        const container = containerRef.current;
+        
+        // Get parent container width
+        const parentWidth = container.parentElement.offsetWidth;
+        
+        // Calculate available height (accounting for other UI elements)
+        const availableHeight = window.innerHeight - 300;
+        
+        // Calculate max size based on available space
+        const maxSize = Math.min(parentWidth, availableHeight);
+        
+        const imageAspectRatio = image.width / image.height;
+        let width, height;
+        
+        if (imageAspectRatio > 1) {
+          // Landscape orientation
+          width = maxSize;
+          height = maxSize / imageAspectRatio;
+        } else {
+          // Portrait orientation
+          height = maxSize;
+          width = maxSize * imageAspectRatio;
+        }
+        
+        if (width !== containerDimensions.width || height !== containerDimensions.height) {
+          setContainerDimensions({ width, height });
+        }
+      }
+    };
+    
+    handleResize();
+    
+    // Apply debouncing
+    const debouncedResize = debounce(handleResize, 100);
+    window.addEventListener('resize', debouncedResize);
+    window.addEventListener('orientationchange', debouncedResize);
+    
+    return () => {
+      window.removeEventListener('resize', debouncedResize);
+      window.removeEventListener('orientationchange', debouncedResize);
+    };
+  }, [image]);
+
+  console.log('PuzzleGenerator rendering', { 
+    containerDimensions, 
+    piecesLength: pieces.length,
+    gridSize
+  });
+
+  const startGame = () => {
+    // Set up initial piece positions based on current dimensions
+    const pieceWidth = containerDimensions.width / gridSize;
+    const pieceHeight = containerDimensions.height / gridSize;
+    
+    // Create pieces with initial positions (slightly randomized)
+    let initialPieces = Array.from({ length: gridSize * gridSize }, (_, index) => {
+      const correctX = index % gridSize;
+      const correctY = Math.floor(index / gridSize);
+      
+      // Move each piece by a small random offset (1-2 positions away)
+      let currentX, currentY;
+      do {
+        const offsetX = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
+        const offsetY = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
+        
+        currentX = Math.max(0, Math.min(gridSize - 1, correctX + offsetX));
+        currentY = Math.max(0, Math.min(gridSize - 1, correctY + offsetY));
+      } while (currentX === correctX && currentY === correctY); // Ensure the piece is moved
+      
+      return {
+        id: index,
+        correctX,
+        correctY,
+        currentX,
+        currentY,
+        xPos: currentX * pieceWidth,
+        yPos: currentY * pieceHeight,
+        displayWidth: pieceWidth,
+        displayHeight: pieceHeight,
+        isCorrect: false
+      };
+    });
+  
+    // Handle collisions (pieces landing in the same spot)
+    const occupiedPositions = new Map();
+  
+    initialPieces.forEach(piece => {
+      const posKey = `${piece.currentX},${piece.currentY}`;
+      if (!occupiedPositions.has(posKey)) {
+        occupiedPositions.set(posKey, piece.id);
+      }
+    });
+  
+    // Find and fix collisions
+    initialPieces = initialPieces.map(piece => {
+      const posKey = `${piece.currentX},${piece.currentY}`;
+      if (occupiedPositions.get(posKey) !== piece.id) {
+        // Find an unoccupied position
+        for (let y = 0; y < gridSize; y++) {
+          for (let x = 0; x < gridSize; x++) {
+            const newPosKey = `${x},${y}`;
+            if (!occupiedPositions.has(newPosKey)) {
+              occupiedPositions.set(newPosKey, piece.id);
+              return {
+                ...piece,
+                currentX: x,
+                currentY: y,
+                xPos: x * pieceWidth,
+                yPos: y * pieceHeight
+              };
+            }
+          }
+        }
+      }
+      return piece;
+    });
+    
+    setPieces(initialPieces);
+    setGameStarted(true);
+  };
 
       const getTotalSupply = async () => {
         try {
@@ -1077,19 +1247,6 @@ const convertImageToFile = async (image) => {
     throw new Error('Failed to process image');
   }
 };
-
-// Replace your uploadPuzzleHTML function with this mock version
-//const uploadPuzzleHTML = async (htmlContent) => {
-  //try {
-    //console.log('HTML content would be uploaded to Arweave:', htmlContent);
-    
-    // Return a mock transaction ID
-    //return "mock-arweave-tx-id-for-testing";
-  //} catch (error) {
-    //console.error('HTML upload failed:', error);
-    //throw new Error('Failed to upload puzzle HTML');
-  //}
-//};
 
 const uploadPuzzleHTML = async (imageUrl, gridSize, collectionName) => {
   try {
@@ -2278,41 +2435,6 @@ document.addEventListener('click', (e) => {
   }
 };
 
-const containerStyles = {
-  // Layout and sizing
-  position: 'relative',
-  width: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
-  height: containerDimensions.height > 0 ? `${containerDimensions.height}px` : 'auto',
-  aspectRatio: image?.width && image?.height ? `${image.width}/${image.height}` : '1/1',
-  
-  // Touch interaction
-  touchAction: 'none',
-  WebkitTouchCallout: 'none',
-  WebkitTapHighlightColor: 'transparent',
-  WebkitUserSelect: 'none',
-  userSelect: 'none',
-  
-  // Visual styling
-  overflow: 'visible',
-  borderRadius: '16px',
-  border: isDarkMode 
-    ? '2px solid rgba(255, 255, 255, 0.1)' 
-    : '2px solid rgba(0, 0, 0, 0.1)',
-  boxShadow: isDarkMode
-    ? '0 8px 32px rgba(0, 0, 0, 0.3)'
-    : '0 8px 32px rgba(0, 0, 0, 0.1)',
-  
-  // Responsive behavior
-  margin: '0 auto',
-  maxWidth: '100%',
-  transition: 'all 0.3s ease',
-  
-  // Performance optimizations
-  backfaceVisibility: 'hidden',
-  willChange: 'transform',
-  transform: 'translateZ(0)'
-};
-
 return (
   <section id="create" className="py-12 relative transition-all duration-500"
   style={{
@@ -2403,126 +2525,107 @@ return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8 p-4 sm:p-8">
       
           {/* Grid Size and Collection Input */}
-          <div className="space-y-12">
-            {/* Grid Size */}
-            <div>
-              <label className={`block mb-4 font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Grid Size</label>
-              <div className="flex gap-2 flex-wrap">
-                {[2, 3, 4, 5].map(size => (
-                  <button
-                    key={size}
-                    onClick={() => setGridSize(size)}
-                    className={`px-8 py-4 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-                      gridSize === size
-                        ? isDarkMode 
-                          ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(138,92,246,0.5)]' 
-                          : 'bg-purple-600 text-white shadow-md'
-                        : isDarkMode
-                          ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    {size}x{size}
-                  </button>
-                ))}
+          <div className="space-y-5">
+              {/* Grid Size */}
+              <div>
+                <label className={`block mb-2 font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Grid Size</label>
+                <div className="flex gap-2 flex-wrap">
+                  {[2, 3, 4, 5].map(size => (
+                    <button
+                      key={size}
+                      onClick={() => setGridSize(size)}
+                      className={`px-4 py-2 rounded-lg transition-all duration-300 ${
+                        gridSize === size
+                          ? isDarkMode 
+                            ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(138,92,246,0.5)]' 
+                            : 'bg-purple-600 text-white shadow-md'
+                          : isDarkMode
+                            ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {size}x{size}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reset and Shuffle Buttons */}
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={sliceImage}
+                  className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
+                    !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
+                  } ${
+                    isDarkMode 
+                      ? 'bg-indigo-600/80 text-white hover:bg-indigo-500' 
+                      : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                  }`}
+                  disabled={!image}
+                >
+                  <RotateCw size={18} />
+                  Reset
+                </button>
+                <button
+                  onClick={shufflePieces}
+                  className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
+                    !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
+                  } ${
+                    isDarkMode 
+                      ? 'bg-purple-600/80 text-white hover:bg-purple-500' 
+                      : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                  }`}
+                  disabled={!image}
+                >
+                  <Shuffle size={18} />
+                  Shuffle
+                </button>
               </div>
             </div>
-
-            {/* Reset and Shuffle Buttons */}
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={() => {
-                  if (image) sliceImage(); // ✅ Ensures puzzle pieces refresh with new image
-                }}
-                className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-                  !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
-                } ${
-                  isDarkMode 
-                    ? 'bg-indigo-600/80 text-white hover:bg-indigo-500' 
-                    : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
-                }`}
-                disabled={!image}
-              >
-                <RotateCw size={18} />
-                Reset
-              </button>
-              <button
-  onClick={shufflePieces}
-  onTouchStart={(e) => {
-    e.stopPropagation(); // Prevent touch event from bubbling to puzzle container
-    e.preventDefault(); // Prevent default touch behavior
-    shufflePieces();
-  }}
-  className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-    !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
-  } ${
-    isDarkMode 
-      ? 'bg-purple-600/80 text-white hover:bg-purple-500' 
-      : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-  }`}
-  style={{
-    touchAction: 'manipulation', // Improve touch responsiveness
-    userSelect: 'none',
-    WebkitUserSelect: 'none',
-  }}
-  disabled={!image}
->
-  <Shuffle size={18} />
-  Shuffle
-</button>
-             {/* Button to Cycle Effects */}
-      <button
-        onClick={cycleEffects}
-        className={`px-4 py-3 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-          !image ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'
-        } ${
-          isDarkMode 
-            ? 'bg-purple-600/80 text-white hover:bg-purple-500' 
-            : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-        }`}
-        disabled={!image}
-      >
-        Effect: {colorEffects[currentEffect].name}
-      </button>
-            </div>
-          </div>
-
-          
-        
 
         {/* Puzzle Preview Section with glass morphism effect */}
         <div 
-          className="flex flex-col space-y-4"
-        >
-          <div 
-            className={`rounded-2xl transition-all duration-500 relative overflow-hidden ${
-              isDarkMode 
-                ? 'bg-gray-900/50 backdrop-blur-md border border-gray-700/50' 
-                : 'bg-white/30 backdrop-blur-md border border-white/50'
-            }`}
+            className="flex flex-col space-y-4"
           >
-            {/* NFT Token Preview when minted */}
-            {mintStatus.status === 'success' && (
-              <div className="absolute top-2 right-2 z-20">
-                <div className={`px-3 py-1 rounded-full text-xs font-semibold animate-pulse ${
-                  isDarkMode ? 'bg-green-900/70 text-green-300' : 'bg-green-100 text-green-700'
-                }`}>
-                  Minted #{mintStatus.tokenId}
+            <div 
+              className={`rounded-2xl transition-all duration-500 relative overflow-hidden ${
+                isDarkMode 
+                  ? 'bg-gray-900/50 backdrop-blur-md border border-gray-700/50' 
+                  : 'bg-white/30 backdrop-blur-md border border-white/50'
+              }`}
+            >
+              {/* NFT Token Preview when minted */}
+              {mintStatus.status === 'success' && (
+                <div className="absolute top-2 right-2 z-20">
+                  <div className={`px-3 py-1 rounded-full text-xs font-semibold animate-pulse ${
+                    isDarkMode ? 'bg-green-900/70 text-green-300' : 'bg-green-100 text-green-700'
+                  }`}>
+                    Minted #{mintStatus.tokenId}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             
             <canvas ref={canvasRef} style={{ display: 'none' }} />
-
-            <div style={{ 
-  overflowY: 'auto',
-  WebkitOverflowScrolling: 'touch'
-}}>
-           <div 
+  
+  <div 
   ref={containerRef}
-  key={image?.src} // ← Add this
-  className="puzzle-container relative mx-auto w-full overflow-visible"
-  style={containerStyles}
+  key={image?.src} 
+  className="puzzle-container relative mx-auto"
+  style={{
+    width: containerDimensions.width > 0 ? `${containerDimensions.width}px` : '100%',
+    height: containerDimensions.height > 0 ? `${containerDimensions.height}px` : 'auto',
+    aspectRatio: image ? `${image.width}/${image.height}` : '1',
+    maxWidth: '100%',
+    maxHeight: 'calc(100vh - 400px)',
+    transition: 'width 0.3s, height 0.3s',
+    touchAction: 'none',
+    overflow: 'hidden',
+    borderRadius: '12px',
+    background: isDarkMode ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.2)',
+    boxShadow: isDarkMode 
+      ? '0 10px 30px rgba(0, 0, 0, 0.5)' 
+      : '0 10px 30px rgba(0, 0, 0, 0.1)'
+  }}
 >
     {/* Preview Image */}
     {image && !gameStarted && (
@@ -2531,16 +2634,25 @@ return (
         alt="Preview"
         className="absolute inset-0 w-full h-full object-contain animate-fadeIn"
         style={{
-          filter: isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.2))' : 'none',
-          objectFit: 'contain',
-          filter: colorEffects[currentEffect].filter,
-          objectPosition: 'center',
+          filter: isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.2))' : 'none'
         }}
       />
     )}
-{/* Puzzle Pieces */}
+
+    {/* Puzzle Pieces */}
     {gameStarted && (
-      <div className="puzzle-pieces-container" style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        className="puzzle-pieces-container"
+        style={{
+          position: 'relative',
+          width: '100%',
+          height: '100%',
+          filter: (solved || hasBeenSolved) 
+            ? `${colorEffects[currentEffect].filter} ${isDarkMode ? 'drop-shadow(0 0 8px rgba(255,255,255,0.3))' : ''}` 
+            : isDarkMode ? 'drop-shadow(0 0 5px rgba(255,255,255,0.1))' : 'none',
+          transition: 'filter 0.5s ease'
+        }}
+      >
         {pieces.map(piece => (
           <PuzzlePiece
             key={piece.id}
@@ -2551,87 +2663,115 @@ return (
           />
         ))}
       </div>
-    )}    
-              {/* Success Message */}
-              {showSuccessMessage && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-2xl font-bold animate-fadeInScale">
-                  <div className="transform rotate-3 bg-gradient-to-r from-purple-500 to-indigo-500 px-6 py-4 rounded-xl shadow-xl">
-                    Puzzle Solved! 🎉
-                  </div>
-                </div>
-              )}
+    )}
 
-              {/* Confetti */}
-              {showConfetti && (
-                <Confetti
-                  width={width}
-                  height={height}
-                  gravity={0.05}
-                  numberOfPieces={200}
-                  recycle={false}
-                  onConfettiComplete={() => setShowConfetti(false)}
-                />
-              )}
-              
-              {showEffectOverlay && (
-                <div className="absolute inset-0 bg-white/10 backdrop-blur-sm transition-opacity duration-300" />
-              )}
-            </div>
-          </div>
-          </div>
-          
-          {/* Game Status */}
-          <div className={`rounded-xl p-4 flex justify-between items-center ${
-            isDarkMode 
-              ? 'bg-gray-800/50 text-gray-300' 
-              : 'bg-white/50 text-gray-700'
-          }`}>
-            <div className="flex items-center gap-2">
-              <Puzzle className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} size={20} />
-              <span className="font-medium">
-                {gameStarted 
-                  ? `Moves: ${moves}` 
-                  : 'Ready to play'}
-              </span>
-            </div>
-            <div>
-              {solved && (
-                <span className="px-3 py-1 rounded-full text-sm font-semibold bg-green-500/20 text-green-500">
-                  Solved!
+    {/* Success Message */}
+    {showSuccessMessage && (
+      <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-2xl font-bold animate-fadeInScale">
+        <div className="transform rotate-3 bg-gradient-to-r from-purple-500 to-indigo-500 px-6 py-4 rounded-xl shadow-xl">
+          Puzzle Solved! 🎉
+        </div>
+      </div>
+    )}
+
+    {/* Confetti */}
+    {showConfetti && (
+      <Confetti
+        width={width}
+        height={height}
+        gravity={0.05}
+        numberOfPieces={200}
+        recycle={false}
+        onConfettiComplete={() => setShowConfetti(false)}
+      />
+    )}
+    {/* Add the effects button here */}
+  {(solved || hasBeenSolved) && (
+    <button
+      onClick={() => {
+        setCurrentEffect((prevEffect) => (prevEffect + 1) % colorEffects.length);
+        setShowEffectOverlay(true);
+        setTimeout(() => setShowEffectOverlay(false), 300);
+      }}
+      className={`absolute bottom-4 right-4 px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-300 ${
+        isDarkMode 
+          ? 'bg-gray-800/80 text-white hover:bg-gray-700' 
+          : 'bg-white/80 text-gray-700 hover:bg-gray-200'
+      } backdrop-blur-sm border border-white/10 shadow-lg`}
+    >
+      <span className="text-sm font-medium">
+        Effect: {colorEffects[currentEffect].name}
+      </span>
+      <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        viewBox="0 0 24 24" 
+        fill="none" 
+        stroke="currentColor" 
+        className="w-4 h-4"
+        strokeWidth="2"
+      >
+        <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707" />
+      </svg>
+    </button>
+  )}
+
+  {showEffectOverlay && (
+    <div className="absolute inset-0 bg-white/10 backdrop-blur-sm transition-opacity duration-300" />
+  )}
+</div>
+</div>
+                    {/* Game Status */}
+                    <div className={`rounded-xl p-4 flex justify-between items-center ${
+              isDarkMode 
+                ? 'bg-gray-800/50 text-gray-300' 
+                : 'bg-white/50 text-gray-700'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Puzzle className={isDarkMode ? 'text-purple-400' : 'text-purple-600'} size={20} />
+                <span className="font-medium">
+                  {gameStarted 
+                    ? `Moves: ${moves}` 
+                    : 'Ready to play'}
                 </span>
-              )}
+              </div>
+              <div>
+                {solved && (
+                  <span className="px-3 py-1 rounded-full text-sm font-semibold bg-green-500/20 text-green-500">
+                    Solved!
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-{/* Minting and Sharing Section */}
-<div className={`p-6 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-  <div className="flex flex-wrap gap-4">
-  <button
-  onClick={() => handleMint(nft)} // ✅ Pass the selected NFT to handleMint
-  disabled={!nft || loading}
-  className={`flex-1 py-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-semibold
-  ${(!nft || loading) 
-    ? 'opacity-50 cursor-not-allowed' 
-    : 'hover:shadow-lg hover:translate-y-[-2px]'
-    } ${
-      isDarkMode 
-        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white' 
-        : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
-    }`}
->
-  {loading ? (
-    <>
-      <div className="animate-spin h-5 w-5 rounded-full border-2 border-white border-t-transparent"></div>
-      <span>Processing...</span>
-    </>
-  ) : (
-    <>
-      <span className="text-lg">Mint as NFT</span>
-    </>
-  )}
-</button>
+        {/* Minting and Sharing Section */}
+        <div className={`p-6 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          <div className="flex flex-wrap gap-4">
+            <button
+              onClick={handleMint}
+              disabled={!image || loading}
+              className={`flex-1 py-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 font-semibold
+              ${(!image || loading) 
+                ? 'opacity-50 cursor-not-allowed' 
+                : 'hover:shadow-lg hover:translate-y-[-2px]'
+              } ${
+                isDarkMode 
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white' 
+                  : 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white'
+              }`}
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin h-5 w-5 rounded-full border-2 border-white border-t-transparent"></div>
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-lg">Mint as NFT</span>
+                </>
+              )}
+            </button>
 
             {/* Sharing Button with animated menu */}
             <div className="relative flex-1">
@@ -2791,11 +2931,6 @@ return (
                     src={image?.src} 
                     alt="NFT Preview" 
                     className="w-full h-auto"
-                    style={{
-                      width: `${image.width}px`,   
-                      height: `${image.height}px`, 
-                      objectFit: 'contain'        // Ensures proper scaling
-                    }}
                   />
                 </div>
                 
@@ -3094,83 +3229,101 @@ return (
       {/* CSS for Animations */}
       <style jsx>{`
         @keyframes float {
-          0%, 100% { transform: translateY(0) translateX(0); }
-          25% { transform: translateY(-10px) translateX(5px); }
-          50% { transform: translateY(0) translateX(10px); }
-          75% { transform: translateY(10px) translateX(5px); }
-        }
-        
-        @keyframes pulse-effect {
-          0% { opacity: 0.7; transform: scale(0.95); }
-          50% { opacity: 0.4; transform: scale(1.05); }
-          100% { opacity: 0; transform: scale(1.1); }
-        }
-        
-        .animate-fadeIn {
-          animation: fadeIn 0.5s ease-in-out;
-        }
-        
-        .animate-fadeInScale {
-          animation: fadeInScale 0.5s ease-in-out;
-        }
-        
-        .animate-slideUp {
-          animation: slideUp 0.5s ease-out;
-        }
-
-
-        
-        .animate-fadeInDown {
-          animation: fadeInDown 0.3s ease-out;
-        }
-
-        .puzzle-piece {
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    will-change: transform;
-    transform: translateZ(0);
-  }
-  
-  .puzzle-piece.dragging {
-    cursor: grabbing !important;
-    z-index: 1000 !important;
-  }
-  
-  .puzzle-container {
-    -webkit-user-select: none;
-    user-select: none;
-    touch-action: none;
-    transform-style: preserve-3d;
-  }
-
-  #puzzle-container {
-    width: 100vw;
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
+  0%, 100% { transform: translateY(0) translateX(0); }
+  25% { transform: translateY(-10px) translateX(5px); }
+  50% { transform: translateY(0) translateX(10px); }
+  75% { transform: translateY(10px) translateX(5px); }
 }
         
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
+        @keyframes pulse-effect {
+  0% { opacity: 0.7; transform: scale(0.95); }
+  50% { opacity: 0.4; transform: scale(1.05); }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+        
+        .animate-fadeIn {
+  animation: fadeIn 0.5s ease-in-out;
+}
+        
+        .animate-fadeInScale {
+  animation: fadeInScale 0.5s ease-in-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.5s ease-out;
+}
+
+.animate-fadeInDown {
+  animation: fadeInDown 0.3s ease-out;
+}
+
+        .puzzle-piece {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  will-change: transform;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+  
+  .puzzle-piece.dragging {
+  cursor: grabbing !important;
+  z-index: 1000 !important;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.5) !important;
+  border: 2px solid white !important;
+}
+
+  
+ .puzzle-container {
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: contain;
+}
+  
+@media (max-width: 768px) {
+  .puzzle-container {
+    max-height: 60vh !important;
+    margin: 0 auto;
+  }
+
+  button {
+    min-height: 48px; /* Touch-friendly size */
+    margin-bottom: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .puzzle-container {
+    max-height: 50vh !important;
+  }
+
+  /* Stack controls on small screens */
+  .grid-cols-2 {
+    grid-template-columns: 1fr !important;
+  }
+}
+       @keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
         
         @keyframes fadeInScale {
-          from { opacity: 0; transform: scale(0.9); }
-          to { opacity: 1; transform: scale(1); }
-        }
-        
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
         @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        @keyframes fadeInDown {
-          from { opacity: 0; transform: translateY(-10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
       `}</style>
     </div>
   </section>
