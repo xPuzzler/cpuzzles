@@ -8,16 +8,13 @@ import axios from 'axios';
 import { getWalletClient, getPublicClient } from '@wagmi/core';
 import { useAccount, useChainId, useWriteContract, usePrepareContractWrite } from 'wagmi';
 import { ethers } from 'ethers';
-import { BrowserProvider, Contract } from "ethers";
 import { getContractAddress } from './contract';
 
 const MINT_PRICE = 0.001; // in ETH
 export const MAX_PER_WALLET = 50;
 const CONTRACT_ADDRESS = '0x4725F266C295E729F29a295b8F0e560EDD9a28b2';
 
-// Check if we're in development mode
 const isDev = false;
-
 
 export const PUZZLE_NFT_ABI = [
   {
@@ -1119,32 +1116,22 @@ export const PUZZLE_NFT_ABI = [
     "stateMutability": "nonpayable",
     "type": "function"
   }
-]
-;
+];
 
-// Create the public client
 const publicClient = createPublicClient({
   chain: baseSepolia,
   transport: http()
 });
 
-/**
- * Stores the mapping between resolver hash and token ID
- */
 const storeHashMapping = async (resolverHash, tokenId) => {
   if (isDev) {
     console.log(`DEV MODE: Storing hash mapping: ${resolverHash} -> ${tokenId}`);
     return;
   }
   
-  // Implementation depends on your storage method
   console.log(`Storing hash mapping: ${resolverHash} -> ${tokenId}`);
-  // Could be a database call, local storage, etc.
 };
 
-/**
- * Mints a new Puzzle NFT
- */
 export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
   const { address } = useAccount();
   const { chain } = useChainId();
@@ -1179,10 +1166,21 @@ export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
   };
 };
 
-// And if you need a standalone function that doesn't use hooks:
 export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress, originalTokenId) => {
   try {
-    if (!window.ethereum) {
+    // Helper function to detect wallet provider
+    const detectProvider = () => {
+      if (window.ethereum) return window.ethereum;
+      if (window.coinbaseWallet) return window.coinbaseWallet;
+      if (window.walletConnect) return window.walletConnect;
+      if (window.trustWallet) return window.trustWallet;
+      if (window.web3 && window.web3.currentProvider) return window.web3.currentProvider;
+      return null;
+    };
+
+    // Detect wallet provider
+    const walletProvider = detectProvider();
+    if (!walletProvider) {
       throw new Error("Ethereum provider not found. Please install a wallet like MetaMask.");
     }
 
@@ -1204,8 +1202,48 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
       throw new Error(`No contract address configured for chain ID ${chainId}. Please switch to Base Sepolia.`);
     }
 
-    const provider = new BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
+    let provider, signer;
+
+    // Initialize provider and signer based on ethers version
+    try {
+      // Try ethers v6 approach first
+      provider = new ethers.BrowserProvider(walletProvider);
+      signer = await provider.getSigner();
+    } catch (error) {
+      console.log("Failed with ethers v6 approach, trying v5:", error);
+      try {
+        // Fallback to ethers v5 approach
+        provider = new ethers.providers.Web3Provider(walletProvider);
+        signer = provider.getSigner();
+      } catch (innerError) {
+        console.error("Failed with both ethers approaches:", innerError);
+        
+        // Last resort for direct provider
+        if (walletProvider.request) {
+          // Create a minimal provider/signer implementation
+          provider = {
+            getBalance: async (address) => {
+              const balanceHex = await walletProvider.request({
+                method: 'eth_getBalance',
+                params: [address, 'latest']
+              });
+              return BigInt(balanceHex);
+            }
+          };
+          
+          signer = {
+            getAddress: async () => {
+              const accounts = await walletProvider.request({
+                method: 'eth_accounts'
+              });
+              return accounts[0];
+            }
+          };
+        } else {
+          throw new Error("Could not initialize wallet provider. Please check your wallet connection.");
+        }
+      }
+    }
 
     // Check if the user is connected with the expected address
     const connectedAddress = await signer.getAddress();
@@ -1214,15 +1252,30 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
     }
 
     // Ensure user has enough funds for minting
-    const balance = await provider.getBalance(connectedAddress);
-    const mintPrice = parseEther(MINT_PRICE.toString());
+    let balance, mintPrice;
+    try {
+      balance = await provider.getBalance(connectedAddress);
+      // Try both v6 and v5 parseEther depending on which is available
+      mintPrice = ethers.parseEther ? ethers.parseEther(MINT_PRICE.toString()) : ethers.utils.parseEther(MINT_PRICE.toString());
+    } catch (error) {
+      console.error("Error checking balance:", error);
+      throw new Error(`Could not check your balance. Please ensure you have at least ${MINT_PRICE} ETH.`);
+    }
 
-    if (balance < mintPrice) {
+    // Check if balance is less than mint price using compatible comparison
+    const hasInsufficientFunds = typeof balance.lt === 'function' ? balance.lt(mintPrice) : balance < mintPrice;
+    if (hasInsufficientFunds) {
       throw new Error(`Insufficient funds. Need ${MINT_PRICE} ETH to mint`);
     }
 
-    // Use the externally defined PUZZLE_NFT_ABI 
-    const contract = new Contract(contractAddress, PUZZLE_NFT_ABI, signer);
+    // Create contract instance with appropriate method
+    let contract;
+    try {
+      contract = new ethers.Contract(contractAddress, PUZZLE_NFT_ABI, signer);
+    } catch (error) {
+      console.error("Contract initialization error:", error);
+      throw new Error("Failed to initialize contract. Please refresh and try again.");
+    }
 
     console.log("📌 Sending mint transaction with:", {
       metadataUrl,
@@ -1241,7 +1294,7 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
       metadataUrl, // Using metadata URL as contentHash
       mintPrice,   // Completion reward
       originalTokenId,
-      { value: mintPrice } // Let the wallet decide the gas fee
+      { value: mintPrice }
     );
 
     console.log("✅ Transaction sent:", tx.hash);
@@ -1275,9 +1328,13 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
         console.log("📌 Found tokenId from event:", tokenId);
       } else {
         // Second attempt: Query the contract's total supply
-        // This will be the tokenId of the newly minted NFT (assuming sequential minting)
         const totalSupply = await contract.totalSupply();
-        tokenId = (totalSupply - 1n).toString();
+        
+        // Handle either BigInt or ethers.BigNumber
+        const bigIntValue = typeof totalSupply === 'bigint' ? totalSupply : 
+                           (totalSupply.toBigInt ? totalSupply.toBigInt() : BigInt(totalSupply.toString()));
+        
+        tokenId = (bigIntValue - 1n).toString();
         console.log("📌 Derived tokenId from totalSupply:", tokenId);
       }
     } catch (error) {
@@ -1331,8 +1388,6 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
     };
   }
 };
-
-// Add this helper function if not already present
 function extractCustomError(error) {
   const errorString = error.toString();
   
@@ -1354,9 +1409,6 @@ function extractCustomError(error) {
 
 export const getMintPrice = () => MINT_PRICE;
 
-/**
- * Gets remaining mints for an address
- */
 export const getRemainingMints = async (address, chainId) => {
   try {
     // Validate parameters
@@ -1387,9 +1439,6 @@ export const getRemainingMints = async (address, chainId) => {
   }
 };
 
-/**
- * Gets puzzle details from the contract
- */
 export const getPuzzleDetails = async (contractAddress, tokenId) => {
   try {
     // For development purposes, returning mock data
@@ -1405,9 +1454,6 @@ export const getPuzzleDetails = async (contractAddress, tokenId) => {
   }
 };
 
-/**
- * Gets all puzzles created by a specific user
- */
 export const getUserPuzzles = async (contractAddress, userAddress) => {
   try {
     // For development purposes, returning mock data
@@ -1433,9 +1479,6 @@ export const getUserPuzzles = async (contractAddress, userAddress) => {
   }
 };
 
-/**
- * Gets all available puzzles from the contract
- */
 export const getAllPuzzles = async (contractAddress) => {
   try {
     // For development purposes, returning mock data

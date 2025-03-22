@@ -9,16 +9,57 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
     setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
   }, []);
 
+  // Helper function to detect available wallet providers
+  const detectWalletProvider = () => {
+    // Check for window.ethereum (MetaMask, etc.)
+    if (window.ethereum) return window.ethereum;
+    
+    // Check for other wallet providers commonly available on mobile
+    if (window.coinbaseWallet) return window.coinbaseWallet;
+    if (window.walletConnect) return window.walletConnect;
+    if (window.trustWallet) return window.trustWallet;
+    
+    // Check for generic web3 provider
+    if (window.web3 && window.web3.currentProvider) return window.web3.currentProvider;
+    
+    return null;
+  };
+
   const handleMintClick = async () => {
     try {
       setError(null);
       
-      // Enhanced pre-mint checks
-      if (!window.ethereum) {
+      // Detect available wallet provider
+      const provider = detectWalletProvider();
+      
+      if (!provider) {
         if (isMobile) {
+          // Mobile-specific deep linking to wallets
           setShowHelp(true);
-          setError("No wallet detected. Please see mobile wallet tips below.");
-          return;
+          
+          // Detect if we're in a mobile browser vs in-app browser
+          const isStandaloneBrowser = !window.navigator.userAgent.includes('MetaMask') && 
+                                      !window.navigator.userAgent.includes('Trust') &&
+                                      !window.navigator.userAgent.includes('Coinbase');
+          
+          if (isStandaloneBrowser) {
+            setError("No wallet detected. Please open this page in your wallet browser or use the links below.");
+            
+            // Attempt to deep link to a wallet
+            const dappUrl = encodeURIComponent(window.location.href);
+            
+            if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+              // iOS deep links
+              window.location.href = `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`;
+            } else {
+              // Android deep links
+              window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
+            }
+            return;
+          } else {
+            setError("Wallet detection issue. Please see mobile wallet tips below.");
+            return;
+          }
         } else {
           setError("Please install MetaMask or another Ethereum wallet to mint.");
           return;
@@ -26,24 +67,38 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
       }
       
       // Check if wallet is connected
-      const isConnected = window.ethereum.selectedAddress || (await window.ethereum.request({ method: 'eth_accounts' })).length > 0;
+      let isConnected = false;
+      
+      try {
+        // Different providers have different ways to check connection
+        if (provider.selectedAddress) {
+          isConnected = true;
+        } else if (provider.request) {
+          const accounts = await provider.request({ method: 'eth_accounts' });
+          isConnected = accounts && accounts.length > 0;
+        } else if (provider.enable) {
+          // Legacy method
+          const accounts = await provider.enable();
+          isConnected = accounts && accounts.length > 0;
+        }
+      } catch (e) {
+        console.error("Error checking connection:", e);
+        isConnected = false;
+      }
       
       if (!isConnected) {
         try {
-          // Try to connect
-          await window.ethereum.request({ method: 'eth_requestAccounts' });
+          // Try to connect using the appropriate method
+          if (provider.request) {
+            await provider.request({ method: 'eth_requestAccounts' });
+          } else if (provider.enable) {
+            await provider.enable();
+          }
         } catch (connectError) {
+          console.error("Connection error:", connectError);
+          
           if (isMobile) {
-            // Handle mobile connection
-            const dappUrl = encodeURIComponent(window.location.href);
-            
-            if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-              window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
-            } else {
-              window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
-            }
-            
-            setError("Please connect your wallet first");
+            setError("Wallet connection failed. Please try connecting manually in your wallet app.");
             setShowHelp(true);
             return;
           } else {
@@ -53,20 +108,32 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
         }
       }
       
-      // Mobile-specific pre-mint guidance
-      if (isMobile) {
-        // Create a warning dialog
-        if (confirm("For successful minting on mobile:\n\n1. Keep your wallet app open during the entire process\n2. Don't switch between apps\n3. Make sure you have enough funds for gas\n\nReady to continue?")) {
-          // Proceed with minting
-          await handleMint();
-        } else {
-          // User canceled
-          return;
+      // Check if we're on the correct network
+      try {
+        const chainId = await provider.request({ method: 'eth_chainId' });
+        const requiredChainId = '0x2105'; // Base mainnet
+        
+        if (chainId !== requiredChainId) {
+          if (isMobile) {
+            setError("Please switch to Base network in your wallet settings.");
+            setShowHelp(true);
+            // We don't return here to allow the user to proceed anyway
+          }
         }
-      } else {
-        // Desktop - just proceed
-        await handleMint();
+      } catch (networkError) {
+        console.warn("Network check error:", networkError);
+        // Non-blocking error, continue with minting
       }
+      
+      // Mobile-specific guidance without confirmation dialog
+      if (isMobile) {
+        // Display important message but don't block with confirm dialog
+        setShowHelp(true);
+      }
+      
+      // Proceed with minting for both mobile and desktop
+      await handleMint();
+      
     } catch (error) {
       console.error("Mint button error:", error);
       setError(error.message || "Failed to mint. Please try again.");
@@ -87,7 +154,7 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
           <p>{mintStatus.message}</p>
           {isMobile && (
             <p className="text-sm mt-2 font-bold">
-              Important: Keep your wallet app open during this process!
+              Important: Keep your wallet app open during this entire process!
             </p>
           )}
         </div>
@@ -137,12 +204,12 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
           </>
         ) : (
           <>
-            <span className="text-lg">{isMobile ? "Mint as NFT (Mobile)" : "Mint as NFT"}</span>
+            <span className="text-lg">Mint as NFT</span>
           </>
         )}
       </button>
 
-      {/* Enhanced mobile guidance */}
+      {/* Mobile guidance */}
       {isMobile && (
         <div className="mt-2">
           <button 
@@ -183,8 +250,9 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
                 <button
                   onClick={() => {
                     // Attempt to switch to Base network
-                    if (window.ethereum) {
-                      window.ethereum.request({
+                    const provider = detectWalletProvider();
+                    if (provider) {
+                      provider.request({
                         method: 'wallet_switchEthereumChain',
                         params: [{ chainId: '0x2105' }], // Base mainnet chainId
                       }).catch(console.error);
