@@ -1168,20 +1168,16 @@ export const useMintPuzzleNFT = (metadataUrl, gridSize) => {
 
 export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress, originalTokenId) => {
   try {
-    // Helper function to detect wallet provider
-    const detectProvider = () => {
-      if (window.ethereum) return window.ethereum;
-      if (window.coinbaseWallet) return window.coinbaseWallet;
-      if (window.walletConnect) return window.walletConnect;
-      if (window.trustWallet) return window.trustWallet;
-      if (window.web3 && window.web3.currentProvider) return window.web3.currentProvider;
-      return null;
-    };
-
-    // Detect wallet provider
-    const walletProvider = detectProvider();
-    if (!walletProvider) {
-      throw new Error("Ethereum provider not found. Please install a wallet like MetaMask.");
+    // Simplified provider detection focusing on mobile compatibility
+    let provider;
+    if (window.ethereum) {
+      provider = window.ethereum;
+    } else if (window.walletConnect) {
+      provider = window.walletConnect;
+    } else if (window.web3 && window.web3.currentProvider) {
+      provider = window.web3.currentProvider;
+    } else {
+      throw new Error("No wallet provider detected. Please open in MetaMask browser or connect your wallet.");
     }
 
     // Validate input parameters
@@ -1202,80 +1198,58 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
       throw new Error(`No contract address configured for chain ID ${chainId}. Please switch to Base Sepolia.`);
     }
 
-    let provider, signer;
-
-    // Initialize provider and signer based on ethers version
+    // Ensure connection before proceeding
+    let accounts;
     try {
-      // Try ethers v6 approach first
-      provider = new ethers.BrowserProvider(walletProvider);
-      signer = await provider.getSigner();
-    } catch (error) {
-      console.log("Failed with ethers v6 approach, trying v5:", error);
-      try {
-        // Fallback to ethers v5 approach
-        provider = new ethers.providers.Web3Provider(walletProvider);
-        signer = provider.getSigner();
-      } catch (innerError) {
-        console.error("Failed with both ethers approaches:", innerError);
-        
-        // Last resort for direct provider
-        if (walletProvider.request) {
-          // Create a minimal provider/signer implementation
-          provider = {
-            getBalance: async (address) => {
-              const balanceHex = await walletProvider.request({
-                method: 'eth_getBalance',
-                params: [address, 'latest']
-              });
-              return BigInt(balanceHex);
-            }
-          };
-          
-          signer = {
-            getAddress: async () => {
-              const accounts = await walletProvider.request({
-                method: 'eth_accounts'
-              });
-              return accounts[0];
-            }
-          };
-        } else {
-          throw new Error("Could not initialize wallet provider. Please check your wallet connection.");
-        }
+      accounts = await provider.request({ method: 'eth_accounts' });
+      if (!accounts || accounts.length === 0) {
+        accounts = await provider.request({ method: 'eth_requestAccounts' });
       }
+    } catch (error) {
+      console.error("Connection error:", error);
+      throw new Error("Failed to connect to your wallet. Please try reconnecting manually.");
     }
 
-    // Check if the user is connected with the expected address
-    const connectedAddress = await signer.getAddress();
+    const connectedAddress = accounts[0];
+    if (!connectedAddress) {
+      throw new Error("Could not get connected address. Please make sure your wallet is unlocked.");
+    }
+
     if (userAddress && connectedAddress.toLowerCase() !== userAddress.toLowerCase()) {
       console.warn(`Warning: Connected address ${connectedAddress} doesn't match expected address ${userAddress}`);
     }
 
-    // Ensure user has enough funds for minting
-    let balance, mintPrice;
-    try {
-      balance = await provider.getBalance(connectedAddress);
-      // Try both v6 and v5 parseEther depending on which is available
-      mintPrice = ethers.parseEther ? ethers.parseEther(MINT_PRICE.toString()) : ethers.utils.parseEther(MINT_PRICE.toString());
-    } catch (error) {
-      console.error("Error checking balance:", error);
-      throw new Error(`Could not check your balance. Please ensure you have at least ${MINT_PRICE} ETH.`);
+    // Check chain ID
+    const currentChainId = await provider.request({ method: 'eth_chainId' });
+    if (currentChainId !== `0x${chainId.toString(16)}`) {
+      try {
+        // Try to switch chain
+        await provider.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: `0x${chainId.toString(16)}` }]
+        });
+      } catch (error) {
+        throw new Error(`Please switch to the correct network in your wallet (Chain ID: ${chainId}).`);
+      }
     }
 
-    // Check if balance is less than mint price using compatible comparison
-    const hasInsufficientFunds = typeof balance.lt === 'function' ? balance.lt(mintPrice) : balance < mintPrice;
-    if (hasInsufficientFunds) {
+    // Get balance using provider directly
+    const balanceHex = await provider.request({
+      method: 'eth_getBalance',
+      params: [connectedAddress, 'latest']
+    });
+    
+    const balance = BigInt(balanceHex);
+    const mintPrice = BigInt(ethers.utils.parseEther(MINT_PRICE.toString()).toString());
+    
+    if (balance < mintPrice) {
       throw new Error(`Insufficient funds. Need ${MINT_PRICE} ETH to mint`);
     }
 
-    // Create contract instance with appropriate method
-    let contract;
-    try {
-      contract = new ethers.Contract(contractAddress, PUZZLE_NFT_ABI, signer);
-    } catch (error) {
-      console.error("Contract initialization error:", error);
-      throw new Error("Failed to initialize contract. Please refresh and try again.");
-    }
+    // Create contract instance with ethers
+    const ethersProvider = new ethers.providers.Web3Provider(provider);
+    const signer = ethersProvider.getSigner();
+    const contract = new ethers.Contract(contractAddress, PUZZLE_NFT_ABI, signer);
 
     console.log("📌 Sending mint transaction with:", {
       metadataUrl,
@@ -1286,38 +1260,55 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
       originalTokenId
     });
 
-    // Send minting transaction
-    const tx = await contract.mintPuzzle(
+    // Send transaction with specific gas parameters for mobile
+    const gasEstimate = await contract.estimateGas.mintPuzzle(
       metadataUrl,
       Number(gridSize),
-      metadataUrl, // Using metadata URL as resolverHash
-      metadataUrl, // Using metadata URL as contentHash
+      metadataUrl, // resolverHash
+      metadataUrl, // contentHash
       mintPrice,   // Completion reward
       originalTokenId,
       { value: mintPrice }
     );
 
+    // Add 20% buffer to gas estimate for mobile wallets
+    const gasLimit = Math.floor(Number(gasEstimate) * 1.2);
+
+    // Send minting transaction with specific gas limit
+    const tx = await contract.mintPuzzle(
+      metadataUrl,
+      Number(gridSize),
+      metadataUrl, // resolverHash
+      metadataUrl, // contentHash
+      mintPrice,   // Completion reward
+      originalTokenId,
+      { 
+        value: mintPrice,
+        gasLimit
+      }
+    );
+
     console.log("✅ Transaction sent:", tx.hash);
 
-    // Wait for transaction to be mined (wait for 1 confirmation)
-    const receipt = await tx.wait(1);
+    // Add a timeout for mobile wallets that might hang
+    const receiptPromise = tx.wait(1);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Transaction confirmation timed out, but it may still complete. Check your wallet for status.")), 60000)
+    );
+
+    // Race between normal confirmation and timeout
+    const receipt = await Promise.race([receiptPromise, timeoutPromise]);
     console.log("📌 Transaction receipt:", receipt);
 
-    // Try to extract the token ID from events
+    // Extract token ID
     let tokenId = null;
-    
     try {
-      // First attempt: Try to parse the PuzzleCreated event
       const puzzleCreatedEvents = receipt.logs
         .filter(log => log.address.toLowerCase() === contractAddress.toLowerCase())
         .map(log => {
           try {
-            return contract.interface.parseLog({
-              topics: log.topics,
-              data: log.data
-            });
+            return contract.interface.parseLog(log);
           } catch (e) {
-            console.log("Error parsing log:", e);
             return null;
           }
         })
@@ -1325,21 +1316,12 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
 
       if (puzzleCreatedEvents.length > 0) {
         tokenId = puzzleCreatedEvents[0].args.tokenId.toString();
-        console.log("📌 Found tokenId from event:", tokenId);
       } else {
-        // Second attempt: Query the contract's total supply
         const totalSupply = await contract.totalSupply();
-        
-        // Handle either BigInt or ethers.BigNumber
-        const bigIntValue = typeof totalSupply === 'bigint' ? totalSupply : 
-                           (totalSupply.toBigInt ? totalSupply.toBigInt() : BigInt(totalSupply.toString()));
-        
-        tokenId = (bigIntValue - 1n).toString();
-        console.log("📌 Derived tokenId from totalSupply:", tokenId);
+        tokenId = (totalSupply.sub(ethers.BigNumber.from(1))).toString();
       }
     } catch (error) {
       console.error("📌 Error getting token ID:", error);
-      // Fall back to using transaction hash as identifier
       tokenId = `tx-${tx.hash.slice(0, 10)}`;
     }
 
@@ -1359,25 +1341,21 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
       method: error.method,
     });
 
-    // Provide user-friendly error messages
+    // Improved error messages for mobile
     let errorMessage = "Transaction failed";
 
     if (error.message?.includes("insufficient funds")) {
       errorMessage = `Insufficient funds. Need ${MINT_PRICE} ETH for minting`;
-    } else if (error.message?.includes("user rejected")) {
-      errorMessage = "Transaction was rejected by user";
-    } else if (error.message?.includes("missing revert data")) {
-      errorMessage = "Contract call failed - please check parameters and try again";
-    } else if (error.message?.includes("Puzzle already exists")) {
-      errorMessage = "This NFT has already been turned into a puzzle";
-    } else if (error.code === "UNPREDICTABLE_GAS_LIMIT") {
-      errorMessage = "Cannot estimate gas - the transaction may fail. Check if you're already approved";
-    } else if (error.code === "ACTION_REJECTED") {
+    } else if (error.message?.includes("user rejected") || error.code === "ACTION_REJECTED") {
       errorMessage = "Transaction was rejected in your wallet";
-    } else if (error.code === "UNSUPPORTED_OPERATION") {
-      errorMessage = "Function not found in contract ABI or event parsing issue. Check contract deployment";
-    } else if (error.code === "NETWORK_ERROR") {
-      errorMessage = "Network error. Please check your connection and try again";
+    } else if (error.message?.includes("transaction underpriced")) {
+      errorMessage = "Transaction underpriced. Please try again with higher gas settings.";
+    } else if (error.message?.includes("nonce")) {
+      errorMessage = "Transaction nonce issue. Please reset your wallet or try again.";
+    } else if (error.message?.includes("timeout")) {
+      errorMessage = "Transaction took too long. Check your wallet app for status.";
+    } else if (error.message?.includes("eth_accounts") || error.message?.includes("eth_requestAccounts")) {
+      errorMessage = "Wallet connection failed. Please restart your wallet app and try again.";
     }
 
     return {
@@ -1388,6 +1366,7 @@ export const mintPuzzleNFT = async (metadataUrl, gridSize, chainId, userAddress,
     };
   }
 };
+
 function extractCustomError(error) {
   const errorString = error.toString();
   

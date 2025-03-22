@@ -1072,31 +1072,34 @@ const [walletConnected, setWalletConnected] = useState(false);
           setError(null);
           setMintError(null);
       
-          // Detect device type
+          // Detect device type and MetaMask browser
           const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          const isMetaMaskBrowser = window.navigator.userAgent.includes('MetaMask');
           
-          // Check if wallet is connected
-          if (!window.ethereum || !window.ethereum.selectedAddress) {
+          // Check if wallet is connected with improved detection
+          let provider;
+          if (window.ethereum) {
+            provider = window.ethereum;
+          } else if (window.walletConnect) {
+            provider = window.walletConnect;
+          } else if (window.web3 && window.web3.currentProvider) {
+            provider = window.web3.currentProvider;
+          } else {
             if (isMobile) {
               // Use different approaches for iOS vs Android
-              const dappUrl = encodeURIComponent(window.location.href);
+              const currentUrl = window.location.href;
               
               if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-                window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+                window.location.href = `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`;
               } else {
-                window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
+                window.location.href = `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`;
               }
               
-              setTimeout(() => {
-                if (!window.ethereum?.selectedAddress) {
-                  setLoading(false);
-                  setError("Please connect your wallet to mint. If your wallet app didn't open, you may need to install it first.");
-                }
-              }, 3000);
-              
+              setLoading(false);
+              setError("Please connect your wallet to mint. Redirecting to wallet app...");
               return;
             } else {
-              throw new Error("Please connect your wallet to mint.");
+              throw new Error("No wallet detected. Please install MetaMask or connect your wallet.");
             }
           }
       
@@ -1114,16 +1117,29 @@ const [walletConnected, setWalletConnected] = useState(false);
           let timeoutId;
       
           try {
-            // Ensure we have the address from the connected wallet
-            const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+            // Ensure connection before proceeding
+            let accounts;
+            try {
+              accounts = await provider.request({ method: 'eth_accounts' });
+              if (!accounts || accounts.length === 0) {
+                accounts = await provider.request({ method: 'eth_requestAccounts' });
+              }
+            } catch (connectError) {
+              console.error("Connection error:", connectError);
+              if (connectError.code === 4001) { // User rejected request
+                throw new Error("You must connect your wallet to mint. Please try again.");
+              } else {
+                throw new Error("Wallet connection failed. Please restart your wallet app and try again.");
+              }
+            }
+      
             const walletAddress = accounts[0];
-            
             if (!walletAddress) {
-              throw new Error("Failed to get wallet address. Please reconnect your wallet.");
+              throw new Error("Could not get connected address. Please make sure your wallet is unlocked.");
             }
             
             // Get current chain ID
-            const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+            const chainIdHex = await provider.request({ method: 'eth_chainId' });
             const currentChainId = parseInt(chainIdHex, 16);
             
             // Validate if we're on a supported network (Base or Base Sepolia)
@@ -1133,13 +1149,31 @@ const [walletConnected, setWalletConnected] = useState(false);
             if (currentChainId !== baseChainId && currentChainId !== baseSepoliaChainId) {
               // Try to switch to Base network
               try {
-                await window.ethereum.request({
+                await provider.request({
                   method: 'wallet_switchEthereumChain',
                   params: [{ chainId: '0x2105' }], // Base mainnet in hex
                 });
               } catch (switchError) {
                 throw new Error("Please switch to Base network in your wallet settings");
               }
+            }
+            
+            // Check if user has enough funds
+            try {
+              const balanceHex = await provider.request({
+                method: 'eth_getBalance',
+                params: [walletAddress, 'latest']
+              });
+              
+              const balance = BigInt(balanceHex);
+              const mintPrice = BigInt(ethers.utils.parseEther(MINT_PRICE.toString()).toString());
+              
+              if (balance < mintPrice) {
+                throw new Error(`Insufficient funds. Need ${MINT_PRICE} ETH to mint`);
+              }
+            } catch (balanceError) {
+              console.warn("Balance check error:", balanceError);
+              // Continue with the process even if balance check fails
             }
             
             // Get total supply with improved error handling
@@ -1165,7 +1199,6 @@ const [walletConnected, setWalletConnected] = useState(false);
       
             // On mobile, show a message to keep wallet app open
             if (isMobile) {
-              // Create a notification element or use setMintStatus to show guidance
               setMintStatus({
                 status: "pending",
                 message: "Preparing transaction. Please keep your wallet app open and ready to approve.",
@@ -1221,16 +1254,47 @@ const [walletConnected, setWalletConnected] = useState(false);
                   message: "Still waiting for wallet approval. Please check your wallet app is open and approve the transaction.",
                 });
               }, 15000); // Check after 15 seconds
+              
+              // For MetaMask browser specifically
+              if (isMetaMaskBrowser) {
+                console.log("📱 Detected MetaMask in-app browser");
+              }
             }
             
-            // Use the actual address from the wallet instead of any stored address
-            const result = await mintPuzzleNFT(
-              metadataUrl, 
-              gridSize, 
-              currentChainId, 
-              walletAddress, 
-              tokenId
-            );
+            // Prepare the actual mint transaction with specific gas parameters for mobile
+            let result;
+            try {
+              // Use the actual address from the wallet instead of any stored address
+              result = await mintPuzzleNFT(
+                metadataUrl, 
+                gridSize, 
+                currentChainId, 
+                walletAddress, 
+                tokenId
+              );
+            } catch (txError) {
+              console.error("Transaction execution error:", txError);
+              
+              // Special handling for "transaction underpriced" error on mobile
+              if (txError.message?.includes("transaction underpriced") && isMobile) {
+                setMintStatus({
+                  status: "warning",
+                  message: "Transaction needs higher gas. Retrying with increased gas limit...",
+                });
+                
+                // Retry with higher gas settings
+                result = await mintPuzzleNFT(
+                  metadataUrl, 
+                  gridSize, 
+                  currentChainId, 
+                  walletAddress, 
+                  tokenId,
+                  true // Flag to use higher gas limit
+                );
+              } else {
+                throw txError;
+              }
+            }
             
             // Clear the timeout if we get here
             if (timeoutId) clearTimeout(timeoutId);
@@ -1244,7 +1308,7 @@ const [walletConnected, setWalletConnected] = useState(false);
               });
               console.log("✅ Mint successful:", result.tokenId);
             } else {
-              throw new Error(result.message || "Minting failed. Please try again.");
+              throw new Error(result.error || "Minting failed. Please try again.");
             }
             
           } catch (error) {
@@ -1255,11 +1319,19 @@ const [walletConnected, setWalletConnected] = useState(false);
             console.error("Transaction error details:", error);
             
             if (error.code === 4001) throw new Error("User rejected transaction");
-            if (error.message.includes('timeout')) throw new Error("Transaction timeout. The wallet app may not have opened properly.");
+            if (error.message?.includes('timeout')) throw new Error("Transaction timeout. The wallet app may not have opened properly.");
             
             if (isMobile) {
-              if (error.message.includes('disconnected') || error.message.includes('connect')) {
+              if (error.message?.includes('disconnected') || error.message?.includes('connect')) {
                 throw new Error("Wallet connection issue. Please try reopening your wallet app and try again.");
+              }
+              
+              if (error.message?.includes('insufficient funds')) {
+                throw new Error(`Insufficient funds in your wallet. You need at least ${MINT_PRICE} ETH plus gas to mint.`);
+              }
+              
+              if (isMetaMaskBrowser && error.message?.includes('nonce')) {
+                throw new Error("Transaction nonce error. Try resetting your MetaMask account in Settings > Advanced.");
               }
               
               // Generic mobile guidance for common issues
@@ -1267,11 +1339,11 @@ const [walletConnected, setWalletConnected] = useState(false);
             }
             
             // Check for common RPC errors
-            if (error.message.includes('insufficient funds')) {
+            if (error.message?.includes('insufficient funds')) {
               throw new Error("Insufficient funds in your wallet to complete this transaction");
             }
             
-            if (error.message.includes('gas')) {
+            if (error.message?.includes('gas')) {
               throw new Error("Gas estimation failed. The transaction might fail or the contract might have an error.");
             }
             

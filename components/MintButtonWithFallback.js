@@ -2,137 +2,163 @@ import React, { useState, useEffect } from 'react';
 
 const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintStatus }) => {
   const [isMobile, setIsMobile] = useState(false);
+  const [isMetaMaskBrowser, setIsMetaMaskBrowser] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [error, setError] = useState(null);
+  const [pendingTransaction, setPendingTransaction] = useState(false);
 
   useEffect(() => {
-    setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+    // Detect mobile device
+    const mobileDetected = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    setIsMobile(mobileDetected);
+    
+    // Specifically detect if we're in MetaMask browser
+    const isMMBrowser = window.navigator.userAgent.includes('MetaMask');
+    setIsMetaMaskBrowser(isMMBrowser);
+    
+    // Check for pending transactions on load
+    const checkPendingTransactions = async () => {
+      try {
+        if (window.ethereum) {
+          const provider = window.ethereum;
+          const accounts = await provider.request({ method: 'eth_accounts' });
+          
+          if (accounts && accounts.length > 0) {
+            const address = accounts[0];
+            
+            // Get pending transactions count
+            const pendingCount = await provider.request({
+              method: 'eth_getTransactionCount',
+              params: [address, 'pending']
+            });
+            
+            const latestCount = await provider.request({
+              method: 'eth_getTransactionCount',
+              params: [address, 'latest']
+            });
+            
+            if (parseInt(pendingCount, 16) > parseInt(latestCount, 16)) {
+              setPendingTransaction(true);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not check pending transactions:", err);
+      }
+    };
+    
+    checkPendingTransactions();
   }, []);
-
-  // Helper function to detect available wallet providers
-  const detectWalletProvider = () => {
-    // Check for window.ethereum (MetaMask, etc.)
-    if (window.ethereum) return window.ethereum;
-    
-    // Check for other wallet providers commonly available on mobile
-    if (window.coinbaseWallet) return window.coinbaseWallet;
-    if (window.walletConnect) return window.walletConnect;
-    if (window.trustWallet) return window.trustWallet;
-    
-    // Check for generic web3 provider
-    if (window.web3 && window.web3.currentProvider) return window.web3.currentProvider;
-    
-    return null;
-  };
 
   const handleMintClick = async () => {
     try {
       setError(null);
       
-      // Detect available wallet provider
-      const provider = detectWalletProvider();
+      // Clear any previous errors
+      if (pendingTransaction) {
+        if (!window.confirm("You have pending transactions. Continuing may cause issues. Do you want to proceed anyway?")) {
+          return;
+        }
+        setPendingTransaction(false);
+      }
       
-      if (!provider) {
+      // Special case for MetaMask browser on mobile
+      if (isMobile && isMetaMaskBrowser) {
+        // Show mobile-specific guidance
+        setShowHelp(true);
+        
+        try {
+          // Start minting process
+          await handleMint();
+        } catch (err) {
+          setError(`Minting failed: ${err.message || "Unknown error"}`);
+        }
+        return;
+      }
+
+      // Standard browser flow
+      if (!window.ethereum && !window.web3?.currentProvider) {
         if (isMobile) {
-          // Mobile-specific deep linking to wallets
+          setError("No wallet detected. Please open in your wallet's browser or install MetaMask.");
           setShowHelp(true);
           
-          // Detect if we're in a mobile browser vs in-app browser
-          const isStandaloneBrowser = !window.navigator.userAgent.includes('MetaMask') && 
-                                      !window.navigator.userAgent.includes('Trust') &&
-                                      !window.navigator.userAgent.includes('Coinbase');
-          
-          if (isStandaloneBrowser) {
-            setError("No wallet detected. Please open this page in your wallet browser or use the links below.");
-            
-            // Attempt to deep link to a wallet
-            const dappUrl = encodeURIComponent(window.location.href);
-            
-            if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-              // iOS deep links
-              window.location.href = `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`;
-            } else {
-              // Android deep links
-              window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
-            }
-            return;
+          // Deep linking to MetaMask
+          if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+            window.location.href = `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`;
           } else {
-            setError("Wallet detection issue. Please see mobile wallet tips below.");
-            return;
+            window.location.href = `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`;
           }
+          return;
         } else {
           setError("Please install MetaMask or another Ethereum wallet to mint.");
           return;
         }
       }
       
-      // Check if wallet is connected
-      let isConnected = false;
+      // Get the provider
+      const provider = window.ethereum || window.web3.currentProvider;
       
+      // Ensure connection
       try {
-        // Different providers have different ways to check connection
-        if (provider.selectedAddress) {
-          isConnected = true;
-        } else if (provider.request) {
-          const accounts = await provider.request({ method: 'eth_accounts' });
-          isConnected = accounts && accounts.length > 0;
-        } else if (provider.enable) {
-          // Legacy method
-          const accounts = await provider.enable();
-          isConnected = accounts && accounts.length > 0;
-        }
-      } catch (e) {
-        console.error("Error checking connection:", e);
-        isConnected = false;
-      }
-      
-      if (!isConnected) {
-        try {
-          // Try to connect using the appropriate method
-          if (provider.request) {
-            await provider.request({ method: 'eth_requestAccounts' });
-          } else if (provider.enable) {
-            await provider.enable();
-          }
-        } catch (connectError) {
-          console.error("Connection error:", connectError);
-          
-          if (isMobile) {
-            setError("Wallet connection failed. Please try connecting manually in your wallet app.");
-            setShowHelp(true);
-            return;
-          } else {
-            setError("Please connect your wallet first");
-            return;
+        const accounts = await provider.request({ method: 'eth_accounts' });
+        if (!accounts || accounts.length === 0) {
+          const requestedAccounts = await provider.request({ method: 'eth_requestAccounts' });
+          if (!requestedAccounts || requestedAccounts.length === 0) {
+            throw new Error("Failed to connect to wallet");
           }
         }
+      } catch (connectError) {
+        console.error("Connection error:", connectError);
+        
+        if (connectError.code === 4001) { // User rejected request
+          setError("You must connect your wallet to mint. Please try again.");
+        } else {
+          setError("Wallet connection failed. Please restart your wallet app and try again.");
+        }
+        return;
       }
       
-      // Check if we're on the correct network
+      // Check network and attempt to switch if needed
       try {
         const chainId = await provider.request({ method: 'eth_chainId' });
-        const requiredChainId = '0x2105'; // Base mainnet
+        // Use Base network chainId
+        const requiredChainId = '0x2105'; // Base Mainnet
         
         if (chainId !== requiredChainId) {
-          if (isMobile) {
-            setError("Please switch to Base network in your wallet settings.");
-            setShowHelp(true);
-            // We don't return here to allow the user to proceed anyway
+          try {
+            await provider.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: requiredChainId }],
+            });
+          } catch (switchError) {
+            // This error code indicates the chain has not been added to MetaMask
+            if (switchError.code === 4902) {
+              setError("Please add the Base network to your wallet first.");
+              return;
+            } else {
+              setError("Please switch to the Base network in your wallet settings.");
+              if (isMobile) setShowHelp(true);
+              return;
+            }
           }
         }
       } catch (networkError) {
         console.warn("Network check error:", networkError);
-        // Non-blocking error, continue with minting
+        // Continue with minting
       }
       
-      // Mobile-specific guidance without confirmation dialog
+      // Mobile-specific guidance
       if (isMobile) {
-        // Display important message but don't block with confirm dialog
         setShowHelp(true);
       }
       
-      // Proceed with minting for both mobile and desktop
-      await handleMint();
+      // Proceed with minting
+      try {
+        await handleMint();
+      } catch (mintError) {
+        console.error("Mint error:", mintError);
+        setError(mintError.message || "Minting failed. Please try again.");
+      }
       
     } catch (error) {
       console.error("Mint button error:", error);
@@ -148,14 +174,29 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
         </div>
       )}
       
+      {pendingTransaction && (
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
+          <p>You have pending transactions in your wallet. This may interfere with new minting attempts.</p>
+          <button 
+            className="underline mt-1 text-sm" 
+            onClick={() => setPendingTransaction(false)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      
       {/* Status messages */}
       {mintStatus && mintStatus.status === "pending" && (
         <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded mb-4">
           <p>{mintStatus.message}</p>
           {isMobile && (
-            <p className="text-sm mt-2 font-bold">
-              Important: Keep your wallet app open during this entire process!
-            </p>
+            <div className="mt-2 font-bold">
+              <p className="text-sm">IMPORTANT: Keep your wallet app open during this entire process!</p>
+              {isMetaMaskBrowser && (
+                <p className="text-sm mt-1">If the transaction doesn't appear, check your MetaMask activity tab.</p>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -185,6 +226,11 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
       {mintStatus && mintStatus.status === "error" && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           <p>{mintStatus.message}</p>
+          {isMobile && isMetaMaskBrowser && (
+            <p className="text-sm mt-2">
+              Check your MetaMask activity tab to see if the transaction is still processing.
+            </p>
+          )}
         </div>
       )}
       
@@ -209,7 +255,7 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
         )}
       </button>
 
-      {/* Mobile guidance */}
+      {/* Mobile guidance - enhanced for MetaMask browser */}
       {isMobile && (
         <div className="mt-2">
           <button 
@@ -223,41 +269,65 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
             <div className="mt-2 p-4 bg-gray-100 rounded-lg text-sm">
               <h4 className="font-bold">Mobile Wallet Tips:</h4>
               <ul className="list-disc pl-5 mt-1">
-                <li>Make sure your wallet app (MetaMask, etc.) is installed</li>
-                <li className="font-bold">IMPORTANT: Keep your wallet app open during the entire minting process</li>
-                <li>Ensure you have sufficient funds for the NFT and gas fees</li>
-                <li>Connect your wallet before minting</li>
-                <li>Switch to the Base network in your wallet settings</li>
-                <li>If transaction doesn't appear in your wallet, restart the app</li>
-                <li>For best results, try minting on desktop</li>
+                {isMetaMaskBrowser ? (
+                  // MetaMask browser specific tips
+                  <>
+                    <li className="font-bold">If the transaction is taking too long, check your Activity tab in MetaMask</li>
+                    <li>Try setting your gas to "Fast" or "Aggressive" in MetaMask settings</li>
+                    <li>Make sure your MetaMask app is updated to the latest version</li>
+                    <li>Ensure you don't have pending transactions that might be causing conflicts</li>
+                    <li>If the transaction fails, try restarting the MetaMask app completely</li>
+                  </>
+                ) : (
+                  // Standard mobile tips
+                  <>
+                    <li>Make sure your wallet app (MetaMask, etc.) is installed</li>
+                    <li className="font-bold">IMPORTANT: Keep your wallet app open during the entire minting process</li>
+                    <li>Ensure you have sufficient funds for the NFT and gas fees</li>
+                    <li>Switch to the Base network in your wallet settings</li>
+                    <li>For best results, try opening this page in your wallet's browser app</li>
+                  </>
+                )}
               </ul>
               
               <div className="mt-3 flex gap-2">
-                <button 
-                  onClick={() => {
-                    // Open MetaMask app directly
-                    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-                      window.location.href = 'https://metamask.app.link/';
-                    } else {
-                      window.location.href = 'intent://metamask.app/#Intent;scheme=metamask;package=io.metamask;end;';
-                    }
-                  }} 
-                  className="flex-1 py-2 bg-blue-500 text-white rounded-lg"
-                >
-                  Open Wallet App
-                </button>
+                {!isMetaMaskBrowser && (
+                  <button 
+                    onClick={() => {
+                      // Open MetaMask app directly with deep linking
+                      window.location.href = `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`;
+                    }} 
+                    className="flex-1 py-2 bg-blue-500 text-white rounded-lg"
+                  >
+                    Open in MetaMask
+                  </button>
+                )}
+                
+                {isMetaMaskBrowser && (
+                  <button
+                    onClick={() => {
+                      // Open the activity tab in MetaMask
+                      window.location.href = "https://metamask.app/activity";
+                    }}
+                    className="flex-1 py-2 bg-blue-500 text-white rounded-lg"
+                  >
+                    Check Transactions
+                  </button>
+                )}
                 
                 <button
                   onClick={() => {
-                    // Attempt to switch to Base network
-                    const provider = detectWalletProvider();
+                    // Switch to Base network or refresh wallet connection
+                    const provider = window.ethereum || window.web3?.currentProvider;
                     if (provider) {
                       provider.request({
                         method: 'wallet_switchEthereumChain',
                         params: [{ chainId: '0x2105' }], // Base mainnet chainId
-                      }).catch(console.error);
+                      }).catch(() => {
+                        alert("Please switch to Base network manually in your wallet settings.");
+                      });
                     } else {
-                      alert("Wallet not detected. Please install MetaMask first.");
+                      alert("Wallet not detected. Please open in your wallet's browser.");
                     }
                   }}
                   className="flex-1 py-2 bg-purple-500 text-white rounded-lg"
@@ -265,6 +335,18 @@ const MintButtonWithFallback = ({ handleMint, image, loading, isDarkMode, mintSt
                   Switch to Base
                 </button>
               </div>
+              
+              {isMetaMaskBrowser && (
+                <div className="mt-3 p-2 bg-yellow-50 border border-yellow-300 rounded">
+                  <p className="font-bold">MetaMask Browser Troubleshooting:</p>
+                  <ol className="list-decimal pl-5 mt-1">
+                    <li>Go to MetaMask Settings → Advanced</li>
+                    <li>Reset Account (this clears transaction history but keeps your funds)</li>
+                    <li>Return here and try minting again</li>
+                    <li>Still not working? Try a desktop browser for most reliable experience</li>
+                  </ol>
+                </div>
+              )}
             </div>
           )}
         </div>
