@@ -1072,24 +1072,21 @@ const [walletConnected, setWalletConnected] = useState(false);
           setError(null);
           setMintError(null);
       
+          // Detect device type
+          const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+          
           // Check if wallet is connected
           if (!window.ethereum || !window.ethereum.selectedAddress) {
-            // Improved mobile detection and wallet handling
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            
             if (isMobile) {
               // Use different approaches for iOS vs Android
               const dappUrl = encodeURIComponent(window.location.href);
               
               if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-                // Universal link for iOS
                 window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
               } else {
-                // Intent URL for Android (more reliable)
                 window.location.href = `intent://metamask.app/connect#Intent;scheme=metamask;package=io.metamask;end;`;
               }
               
-              // Set a timeout to check if wallet connection was successful
               setTimeout(() => {
                 if (!window.ethereum?.selectedAddress) {
                   setLoading(false);
@@ -1112,78 +1109,161 @@ const [walletConnected, setWalletConnected] = useState(false);
             throw new Error("Invalid NFT token ID.");
           }
       
-          // Transaction timeout setup (45 seconds)
-          const transactionTimeout = 45000;
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Transaction timeout. Please try again.')), transactionTimeout)
-          );
+          // Increase the transaction timeout for mobile devices
+          const transactionTimeout = isMobile ? 90000 : 45000; // 90 seconds for mobile, 45 for desktop
+          let timeoutId;
       
-          let result;
           try {
-            result = await Promise.race([
-              (async () => {
-                // Ensure we have the address from the connected wallet
-                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-                const walletAddress = accounts[0];
-                
-                if (!walletAddress) {
-                  throw new Error("Failed to get wallet address. Please reconnect your wallet.");
-                }
-                
-                // Get current chain ID
-                const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
-                const chainId = parseInt(chainIdHex, 16);
-                
-                const currentSupply = await getTotalSupply();
-                console.log("📌 Current Supply:", currentSupply);
-      
-                if (currentSupply === null || isNaN(currentSupply) || currentSupply < 0) {
-                  throw new Error("Invalid total supply");
-                }
-      
-                const nextTokenId = currentSupply + 1;
-                console.log("✅ Next Token ID:", nextTokenId);
-      
-                if (nextTokenId === 0 || isNaN(nextTokenId)) {
-                  throw new Error("Invalid next token ID");
-                }
-      
-                const ipfsImageUrl = image;
-                const arweaveId = await uploadPuzzleHTML(ipfsImageUrl, gridSize, collectionName);
-      
-                const metadata = createPuzzleMetadata(
-                  ipfsImageUrl,
-                  gridSize,
-                  arweaveId,
-                  nextTokenId,
-                  tokenId,
-                  collectionName,
-                  moves,
-                  contractAddress
-                );
-      
-                console.log("📝 Metadata Created:", metadata);
-                const metadataUrl = await uploadMetadataToIPFS(metadata, nextTokenId);
-      
-                // Use the actual address from the wallet instead of any stored address
-                return await mintPuzzleNFT(
-                  metadataUrl, 
-                  gridSize, 
-                  chainId, 
-                  walletAddress, 
-                  tokenId
-                );
-              })(),
-              timeoutPromise
-            ]);
-          } catch (error) {
-            // Enhanced error handling for mobile and common wallet errors
-            if (error.code === 4001) throw new Error("User rejected transaction");
-            if (error.message.includes('timeout')) throw new Error("Transaction timeout");
+            // Ensure we have the address from the connected wallet
+            const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+            const walletAddress = accounts[0];
             
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            if (isMobile && (error.message.includes('disconnected') || error.message.includes('connect'))) {
-              throw new Error("Wallet connection issue. Please try reopening your wallet app and try again.");
+            if (!walletAddress) {
+              throw new Error("Failed to get wallet address. Please reconnect your wallet.");
+            }
+            
+            // Get current chain ID
+            const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+            const currentChainId = parseInt(chainIdHex, 16);
+            
+            // Validate if we're on a supported network (Base or Base Sepolia)
+            const baseChainId = 8453; // Base mainnet
+            const baseSepoliaChainId = 84532; // Base Sepolia testnet
+            
+            if (currentChainId !== baseChainId && currentChainId !== baseSepoliaChainId) {
+              // Try to switch to Base network
+              try {
+                await window.ethereum.request({
+                  method: 'wallet_switchEthereumChain',
+                  params: [{ chainId: '0x2105' }], // Base mainnet in hex
+                });
+              } catch (switchError) {
+                throw new Error("Please switch to Base network in your wallet settings");
+              }
+            }
+            
+            // Get total supply with improved error handling
+            let currentSupply;
+            try {
+              currentSupply = await getTotalSupply();
+              console.log("📌 Current Supply:", currentSupply);
+            } catch (supplyError) {
+              console.error("Error getting supply:", supplyError);
+              throw new Error("Failed to get current supply. Please check your connection and try again.");
+            }
+      
+            if (currentSupply === null || isNaN(currentSupply) || currentSupply < 0) {
+              throw new Error("Invalid total supply");
+            }
+      
+            const nextTokenId = currentSupply + 1;
+            console.log("✅ Next Token ID:", nextTokenId);
+      
+            if (nextTokenId === 0 || isNaN(nextTokenId)) {
+              throw new Error("Invalid next token ID");
+            }
+      
+            // On mobile, show a message to keep wallet app open
+            if (isMobile) {
+              // Create a notification element or use setMintStatus to show guidance
+              setMintStatus({
+                status: "pending",
+                message: "Preparing transaction. Please keep your wallet app open and ready to approve.",
+              });
+            }
+      
+            const ipfsImageUrl = image;
+            
+            // Break the process into smaller steps with progress updates
+            setMintStatus({
+              status: "pending",
+              message: "Step 1/4: Preparing puzzle HTML...",
+            });
+            
+            const arweaveId = await uploadPuzzleHTML(ipfsImageUrl, gridSize, collectionName);
+      
+            setMintStatus({
+              status: "pending",
+              message: "Step 2/4: Creating metadata...",
+            });
+            
+            const metadata = createPuzzleMetadata(
+              ipfsImageUrl,
+              gridSize,
+              arweaveId,
+              nextTokenId,
+              tokenId,
+              collectionName,
+              moves,
+              contractAddress
+            );
+      
+            console.log("📝 Metadata Created:", metadata);
+            
+            setMintStatus({
+              status: "pending",
+              message: "Step 3/4: Uploading to IPFS...",
+            });
+            
+            const metadataUrl = await uploadMetadataToIPFS(metadata, nextTokenId);
+      
+            setMintStatus({
+              status: "pending",
+              message: "Step 4/4: Sending transaction to wallet. Please approve in your wallet app...",
+            });
+            
+            // Special handling for mobile - set timeout with clear feedback
+            if (isMobile) {
+              // Set a timeout with progress notification
+              timeoutId = setTimeout(() => {
+                setMintStatus({
+                  status: "warning",
+                  message: "Still waiting for wallet approval. Please check your wallet app is open and approve the transaction.",
+                });
+              }, 15000); // Check after 15 seconds
+            }
+            
+            // Use the actual address from the wallet instead of any stored address
+            const result = await mintPuzzleNFT(
+              metadataUrl, 
+              gridSize, 
+              currentChainId, 
+              walletAddress, 
+              tokenId
+            );
+            
+            // Clear the timeout if we get here
+            if (timeoutId) clearTimeout(timeoutId);
+      
+            if (result.success) {
+              setMintStatus({
+                status: "success",
+                message: "Your Web3 Puzzles NFT has been minted!",
+                tokenId: result.tokenId,
+                hash: result.hash,
+              });
+              console.log("✅ Mint successful:", result.tokenId);
+            } else {
+              throw new Error(result.message || "Minting failed. Please try again.");
+            }
+            
+          } catch (error) {
+            // Clear any pending timeouts
+            if (timeoutId) clearTimeout(timeoutId);
+            
+            // Enhanced error handling for mobile and common wallet errors
+            console.error("Transaction error details:", error);
+            
+            if (error.code === 4001) throw new Error("User rejected transaction");
+            if (error.message.includes('timeout')) throw new Error("Transaction timeout. The wallet app may not have opened properly.");
+            
+            if (isMobile) {
+              if (error.message.includes('disconnected') || error.message.includes('connect')) {
+                throw new Error("Wallet connection issue. Please try reopening your wallet app and try again.");
+              }
+              
+              // Generic mobile guidance for common issues
+              throw new Error(`Transaction failed: ${error.message}. On mobile, try: 1) Keep wallet app open during the entire process, 2) Ensure you have funds for gas, 3) Check network connection.`);
             }
             
             // Check for common RPC errors
@@ -1196,18 +1276,6 @@ const [walletConnected, setWalletConnected] = useState(false);
             }
             
             throw error;
-          }
-      
-          if (result.success) {
-            setMintStatus({
-              status: "success",
-              message: "Your Web3 Puzzles NFT has been minted!",
-              tokenId: result.tokenId,
-              hash: result.hash,
-            });
-            console.log("✅ Mint successful:", result.tokenId);
-          } else {
-            throw new Error(result.message || "Minting failed. Please try again.");
           }
       
         } catch (error) {
